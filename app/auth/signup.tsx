@@ -1,7 +1,8 @@
-// app/auth/login.tsx
+// app/auth/signup.tsx
 import { LinearGradient } from 'expo-linear-gradient';
 import { Stack, router } from "expo-router";
-import { signInWithEmailAndPassword } from "firebase/auth";
+import { createUserWithEmailAndPassword } from "firebase/auth";
+import { doc, setDoc } from "firebase/firestore";
 import React, { useEffect, useRef, useState } from "react";
 import {
   Alert,
@@ -19,11 +20,11 @@ import {
   View,
 } from "react-native";
 import { Circle, Defs, RadialGradient, Stop, Svg } from 'react-native-svg';
-import { auth } from "../../src2/firebase/config";
+import { useTheme } from '../../contexts/ThemeContext';
+import { auth, db } from "../../src2/firebase/config";
 
 const { width, height } = Dimensions.get('window');
 
-// ============== ANIMATED STAR BACKGROUND ==============
 const StarBackground = () => {
   const [stars, setStars] = useState<any[]>([]);
 
@@ -84,25 +85,91 @@ const StarBackground = () => {
   );
 };
 
-// ============== ANIMATED BUTTON ==============
-const AnimatedButton = ({ title, onPress, isPrimary }: any) => {
+const FloatingFlowers = () => {
+  const [flowers, setFlowers] = useState<any[]>([]);
+
+  useEffect(() => {
+    const newFlowers = Array.from({ length: 25 }, (_, i) => ({
+      id: i,
+      x: Math.random() * width,
+      y: Math.random() * height,
+      size: Math.random() * 30 + 20,
+      rotation: Math.random() * 360,
+      baseOpacity: Math.random() * 0.3 + 0.15,
+      speedX: (Math.random() - 0.5) * 0.15,
+      speedY: (Math.random() - 0.5) * 0.15,
+      rotationSpeed: (Math.random() - 0.5) * 0.3,
+      pulsePhase: Math.random() * Math.PI * 2,
+      pulseSpeed: Math.random() * 1 + 0.5,
+    }));
+    
+    setFlowers(newFlowers);
+
+    let animationRef = 0;
+    const animate = () => {
+      animationRef += 0.008;
+      setFlowers(prevFlowers => 
+        prevFlowers.map(flower => ({
+          ...flower,
+          x: (flower.x + flower.speedX + width) % width,
+          y: (flower.y + flower.speedY + height) % height,
+          rotation: (flower.rotation + flower.rotationSpeed) % 360,
+          opacity: flower.baseOpacity + Math.sin(animationRef * flower.pulseSpeed + flower.pulsePhase) * 0.15,
+        }))
+      );
+      requestAnimationFrame(animate);
+    };
+
+    const animationId = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(animationId);
+  }, []);
+
+  return (
+    <View style={StyleSheet.absoluteFill} pointerEvents="none">
+      {flowers.map((flower) => (
+        <Animated.Image
+          key={flower.id}
+          source={require('../../assets/images/flower_money.png')}
+          style={{
+            position: 'absolute',
+            left: flower.x,
+            top: flower.y,
+            width: flower.size,
+            height: flower.size,
+            opacity: flower.opacity || flower.baseOpacity,
+            transform: [{ rotate: `${flower.rotation}deg` }],
+          }}
+        />
+      ))}
+    </View>
+  );
+};
+
+const AnimatedButton = ({ title, onPress, isPrimary, disabled }: any) => {
+  const { theme } = useTheme();
   const scaleAnim = useRef(new Animated.Value(1)).current;
 
   const handlePressIn = () => {
-    Animated.spring(scaleAnim, {
-      toValue: 0.96,
-      useNativeDriver: true,
-      friction: 5,
-    }).start();
+    if (!disabled) {
+      Animated.spring(scaleAnim, {
+        toValue: 0.96,
+        useNativeDriver: true,
+        friction: 5,
+      }).start();
+    }
   };
 
   const handlePressOut = () => {
-    Animated.spring(scaleAnim, {
-      toValue: 1,
-      useNativeDriver: true,
-      friction: 5,
-    }).start();
+    if (!disabled) {
+      Animated.spring(scaleAnim, {
+        toValue: 1,
+        useNativeDriver: true,
+        friction: 5,
+      }).start();
+    }
   };
+
+  const disabledColors: readonly [string, string, string] = ['#6B5B88', '#5B4B78', '#4B3B68'];
 
   return (
     <TouchableOpacity
@@ -110,20 +177,33 @@ const AnimatedButton = ({ title, onPress, isPrimary }: any) => {
       onPressIn={handlePressIn}
       onPressOut={handlePressOut}
       onPress={onPress}
+      disabled={disabled}
     >
       <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
         {isPrimary ? (
           <LinearGradient
-            colors={['#B4A4F8', '#9B8AE8', '#8B7AD8']}
+            colors={disabled ? disabledColors : theme.buttonPrimary}
             style={styles.primaryButton}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
           >
-            <Text style={styles.primaryButtonText}>{title}</Text>
+            <Text style={[styles.primaryButtonText, { color: theme.primaryText }]}>
+              {title}
+            </Text>
           </LinearGradient>
         ) : (
-          <View style={styles.secondaryButton}>
-            <Text style={styles.secondaryButtonText}>{title}</Text>
+          <View
+            style={[
+              styles.secondaryButton,
+              {
+                backgroundColor: theme.buttonSecondary,
+                borderColor: theme.buttonSecondaryBorder,
+              },
+            ]}
+          >
+            <Text style={[styles.secondaryButtonText, { color: theme.accent[0] }]}>
+              {title}
+            </Text>
           </View>
         )}
       </Animated.View>
@@ -131,13 +211,12 @@ const AnimatedButton = ({ title, onPress, isPrimary }: any) => {
   );
 };
 
-export default function LoginScreen() {
+export default function SignUpScreen() {
+  const { theme, isDark } = useTheme();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [focusedField, setFocusedField] = useState<string | null>(null);
-  const [emailError, setEmailError] = useState("");
-  const [passwordError, setPasswordError] = useState("");
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(30)).current;
@@ -158,96 +237,77 @@ export default function LoginScreen() {
     ]).start();
   }, []);
 
-  // Email validation
   const validateEmail = (email: string) => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     return emailRegex.test(email);
   };
 
-  // Clear errors when user types
-  const handleEmailChange = (text: string) => {
-    setEmail(text);
-    if (emailError) setEmailError("");
+  const validatePassword = (password: string) => {
+    const errors = [];
+    if (password.length < 6) errors.push("at least 6 characters");
+    if (!/[A-Z]/.test(password)) errors.push("one uppercase letter");
+    if (!/[a-z]/.test(password)) errors.push("one lowercase letter");
+    if (!/[0-9]/.test(password)) errors.push("one number");
+    return errors;
   };
 
-  const handlePasswordChange = (text: string) => {
-    setPassword(text);
-    if (passwordError) setPasswordError("");
-  };
-
-  const login = async () => {
-    // Reset errors
-    setEmailError("");
-    setPasswordError("");
-
-    // Validate fields
-    let hasError = false;
-
+  const signup = async () => {
     if (!email.trim()) {
-      setEmailError("Email is required");
-      hasError = true;
-    } else if (!validateEmail(email)) {
-      setEmailError("Please enter a valid email address");
-      hasError = true;
+      Alert.alert("Missing Email", "Please enter your email address");
+      return;
+    }
+
+    if (!validateEmail(email.trim())) {
+      Alert.alert("Invalid Email", "Please enter a valid email address");
+      return;
     }
 
     if (!password) {
-      setPasswordError("Password is required");
-      hasError = true;
-    } else if (password.length < 6) {
-      setPasswordError("Password must be at least 6 characters");
-      hasError = true;
+      Alert.alert("Missing Password", "Please enter a password");
+      return;
     }
 
-    if (hasError) return;
+    const passwordErrors = validatePassword(password);
+    if (passwordErrors.length > 0) {
+      Alert.alert("Weak Password", `Your password must contain ${passwordErrors.join(", ")}`);
+      return;
+    }
 
     setLoading(true);
     try {
-      await signInWithEmailAndPassword(auth, email, password);
+      const userCred = await createUserWithEmailAndPassword(auth, email.trim(), password);
+      const uid = userCred.user.uid;
+
+      await setDoc(doc(db, "users", uid), {
+        email: email.trim(),
+        createdAt: new Date().toISOString(),
+      });
+
       router.replace("/(tabs)/dashboard");
     } catch (err: any) {
-      // Handle Firebase errors
+      console.log("Signup error:", err.code, err.message);
+      
       const errorCode = err.code;
       
-      switch (errorCode) {
-        case "auth/user-not-found":
-          Alert.alert(
-            "Account Not Found",
-            "No account exists with this email. Would you like to sign up?",
-            [
-              { text: "Cancel", style: "cancel" },
-              { text: "Sign Up", onPress: () => router.push("/auth/signup") }
-            ]
-          );
-          break;
-        case "auth/wrong-password":
-          setPasswordError("Incorrect password");
-          Alert.alert("Login Failed", "The password you entered is incorrect");
-          break;
-        case "auth/invalid-email":
-          setEmailError("Invalid email format");
-          break;
-        case "auth/user-disabled":
-          Alert.alert("Account Disabled", "This account has been disabled");
-          break;
-        case "auth/too-many-requests":
-          Alert.alert(
-            "Too Many Attempts",
-            "Too many failed login attempts. Please try again later or reset your password"
-          );
-          break;
-        case "auth/network-request-failed":
-          Alert.alert("Network Error", "Please check your internet connection");
-          break;
-        case "auth/invalid-credential":
-          Alert.alert(
-            "Invalid Credentials",
-            "Email or password is incorrect. Please check your credentials or sign up if you don't have an account."
-          );
-          break;
-        default:
-          Alert.alert("Login Failed", "An error occurred. Please try again");
-          console.error("Login error:", err.message);
+      if (errorCode === "auth/email-already-in-use") {
+        Alert.alert(
+          "Account Already Exists",
+          "An account with this email already exists. Would you like to log in instead?",
+          [
+            { text: "Cancel", style: "cancel" },
+            { text: "Log In", onPress: () => router.push("/auth/login") }
+          ]
+        );
+      } else if (errorCode === "auth/invalid-email") {
+        Alert.alert("Invalid Email", "Please enter a valid email address");
+      } else if (errorCode === "auth/operation-not-allowed") {
+        Alert.alert("Service Unavailable", "Email/password sign up is currently unavailable. Please try again later.");
+      } else if (errorCode === "auth/weak-password") {
+        Alert.alert("Weak Password", "Please choose a stronger password with at least 6 characters, including uppercase, lowercase, and numbers.");
+      } else if (errorCode === "auth/network-request-failed") {
+        Alert.alert("Network Error", "Please check your internet connection and try again.");
+      } else {
+        Alert.alert("Sign Up Failed", "An unexpected error occurred. Please try again.");
       }
     } finally {
       setLoading(false);
@@ -256,18 +316,18 @@ export default function LoginScreen() {
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#1A1428" />
+      <StatusBar barStyle={theme.statusBarStyle} />
       <Stack.Screen options={{ headerShown: false }} />
       
       <LinearGradient
-        colors={['#1A1428', '#2D1B3D', '#1A1428', '#2D1B3D']}
+        colors={[...theme.background]}
         style={StyleSheet.absoluteFill}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
-        locations={[0, 0.3, 0.7, 1]}
+        locations={[...theme.backgroundLocations]}
       />
       
-      <StarBackground />
+      {isDark ? <StarBackground /> : <FloatingFlowers />}
 
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : "height"}
@@ -287,90 +347,100 @@ export default function LoginScreen() {
               },
             ]}
           >
-            {/* Left side - Text */}
             <View style={styles.leftSection}>
-              <Text style={styles.title}>Log In</Text>
-              <Text style={styles.subtitle}>Track your expenses effortlessly</Text>
-              <Text style={styles.description}>
+              <Text style={[styles.title, { color: theme.primaryText }]}>Sign Up</Text>
+              <Text style={[styles.subtitle, { color: theme.secondaryText }]}>
+                Track your expenses effortlessly
+              </Text>
+              <Text style={[styles.description, { color: theme.tertiaryText }]}>
                 Manage your budget, visualize spending, and achieve your financial goals
               </Text>
             </View>
 
-            {/* Right side - Illustration */}
             <View style={styles.rightSection}>
               <View style={styles.imageContainer}>
                 <Image
-                  source={require('../../assets/images/handmoney.png')}
+                  source={
+                    isDark
+                      ? require('../../assets/images/jarmoney.png')
+                      : require('../../assets/images/piggy_sleep_money.png')
+                  }
                   style={styles.illustration}
                   resizeMode="contain"
                 />
               </View>
             </View>
 
-            {/* Form */}
             <View style={styles.form}>
               <View style={styles.inputContainer}>
-                <Text style={styles.label}>Email</Text>
+                <Text style={[styles.label, { color: theme.secondaryText }]}>Email</Text>
                 <Animated.View
                   style={[
                     styles.inputWrapper,
-                    focusedField === 'email' && styles.inputWrapperFocused,
-                    emailError && styles.inputWrapperError,
+                    {
+                      backgroundColor: theme.inputBackground,
+                      borderColor: focusedField === 'email' ? theme.inputBorderFocused : theme.inputBorder,
+                    },
                   ]}
                 >
                   <TextInput
                     placeholder="your@email.com"
-                    placeholderTextColor="#766B8E"
+                    placeholderTextColor={theme.inputPlaceholder}
                     autoCapitalize="none"
                     keyboardType="email-address"
                     value={email}
-                    onChangeText={handleEmailChange}
+                    onChangeText={setEmail}
                     onFocus={() => setFocusedField('email')}
                     onBlur={() => setFocusedField(null)}
-                    style={styles.input}
+                    style={[styles.input, { color: theme.primaryText }]}
+                    editable={!loading}
                   />
                 </Animated.View>
-                {emailError ? (
-                  <Text style={styles.errorText}>{emailError}</Text>
-                ) : null}
               </View>
 
               <View style={styles.inputContainer}>
-                <Text style={styles.label}>Password</Text>
+                <Text style={[styles.label, { color: theme.secondaryText }]}>Password</Text>
                 <Animated.View
                   style={[
                     styles.inputWrapper,
-                    focusedField === 'password' && styles.inputWrapperFocused,
-                    passwordError && styles.inputWrapperError,
+                    {
+                      backgroundColor: theme.inputBackground,
+                      borderColor: focusedField === 'password' ? theme.inputBorderFocused : theme.inputBorder,
+                    },
                   ]}
                 >
                   <TextInput
                     placeholder="••••••••"
-                    placeholderTextColor="#766B8E"
+                    placeholderTextColor={theme.inputPlaceholder}
                     secureTextEntry
                     value={password}
-                    onChangeText={handlePasswordChange}
+                    onChangeText={setPassword}
                     onFocus={() => setFocusedField('password')}
                     onBlur={() => setFocusedField(null)}
-                    style={styles.input}
+                    style={[styles.input, { color: theme.primaryText }]}
+                    editable={!loading}
                   />
                 </Animated.View>
-                {passwordError ? (
-                  <Text style={styles.errorText}>{passwordError}</Text>
-                ) : null}
+                <Text style={[styles.hintText, { color: theme.tertiaryText }]}>
+                  Must be 6+ characters with uppercase, lowercase, and number
+                </Text>
               </View>
             </View>
 
-            {/* Buttons */}
             <View style={styles.buttonContainer}>
               <AnimatedButton
-                title={loading ? "Signing in..." : "Sign In"}
+                title={loading ? "Creating Account..." : "Sign Up"}
                 isPrimary={true}
-                onPress={login}
+                onPress={signup}
+                disabled={loading}
               />
-              <TouchableOpacity onPress={() => router.push("/auth/signup")}>
-                <Text style={styles.footerText}>
-                  Don't have an account? <Text style={styles.link}>Sign Up</Text>
+              <TouchableOpacity 
+                onPress={() => router.push("/auth/login")}
+                disabled={loading}
+              >
+                <Text style={[styles.footerText, { color: theme.secondaryText }]}>
+                  Already have an account?{' '}
+                  <Text style={[styles.link, { color: theme.accent[0] }]}>Log In</Text>
                 </Text>
               </TouchableOpacity>
             </View>
@@ -382,140 +452,28 @@ export default function LoginScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  keyboardView: {
-    flex: 1,
-  },
-  scrollContent: {
-    flexGrow: 1,
-  },
-  content: {
-    paddingHorizontal: 32,
-    paddingTop: 60,
-    paddingBottom: 40,
-  },
-  leftSection: {
-    marginBottom: 30,
-  },
-  title: {
-    fontSize: 58,
-    fontWeight: '300',
-    color: '#FFFFFF',
-    marginBottom: 16,
-    letterSpacing: 1,
-  },
-  subtitle: {
-    fontSize: 18,
-    color: '#B8A4E8',
-    marginBottom: 12,
-    fontWeight: '500',
-    letterSpacing: 0.3,
-  },
-  description: {
-    fontSize: 14,
-    color: '#8B7AA8',
-    lineHeight: 22,
-    maxWidth: '90%',
-    fontWeight: '400',
-  },
-  rightSection: {
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 30,
-  },
-  imageContainer: {
-    width: '100%',
-    alignItems: 'center',
-  },
-  illustration: {
-    width: 300,
-    height: 300,
-  },
-  form: {
-    width: "100%",
-    marginBottom: 20,
-  },
-  inputContainer: {
-    marginBottom: 22,
-  },
-  label: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: "#B8A4E8",
-    marginBottom: 10,
-    letterSpacing: 0.5,
-  },
-  inputWrapper: {
-    backgroundColor: "rgba(45, 38, 64, 0.6)",
-    borderRadius: 14,
-    borderWidth: 1.5,
-    borderColor: "rgba(184, 164, 232, 0.2)",
-  },
-  inputWrapperFocused: {
-    borderColor: "rgba(232, 180, 248, 0.6)",
-    backgroundColor: "rgba(45, 38, 64, 0.8)",
-  },
-  inputWrapperError: {
-    borderColor: "rgba(255, 100, 100, 0.6)",
-    backgroundColor: "rgba(45, 38, 64, 0.8)",
-  },
-  input: {
-    padding: 18,
-    fontSize: 16,
-    color: "#ffffff",
-  },
-  errorText: {
-    color: "#FF6B6B",
-    fontSize: 12,
-    marginTop: 6,
-    marginLeft: 4,
-    fontWeight: "500",
-  },
-  buttonContainer: {
-    width: '100%',
-    gap: 16,
-  },
-  primaryButton: {
-    paddingVertical: 18,
-    paddingHorizontal: 40,
-    borderRadius: 16,
-    alignItems: 'center',
-    shadowColor: '#E8B4F8',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.4,
-    shadowRadius: 12,
-    elevation: 8,
-  },
-  primaryButtonText: {
-    color: '#FFFFFF',
-    fontSize: 18,
-    fontWeight: '700',
-    letterSpacing: 1,
-  },
-  secondaryButton: {
-    paddingVertical: 18,
-    paddingHorizontal: 40,
-    borderRadius: 16,
-    alignItems: 'center',
-    borderWidth: 2,
-    borderColor: 'rgba(184, 164, 232, 0.4)',
-    backgroundColor: 'rgba(45, 38, 64, 0.5)',
-  },
-  secondaryButtonText: {
-    color: '#E8B4F8',
-    fontSize: 18,
-    fontWeight: '700',
-    letterSpacing: 1,
-  },
-  footerText: {
-    color: "#B8A4E8",
-    fontSize: 14,
-    textAlign: 'center',
-  },
-  link: {
-    color: "#E8B4F8",
-    fontWeight: "700",
-  },
+  container: { flex: 1 },
+  keyboardView: { flex: 1 },
+  scrollContent: { flexGrow: 1 },
+  content: { paddingHorizontal: 32, paddingTop: 60, paddingBottom: 40 },
+  leftSection: { marginBottom: 30 },
+  title: { fontSize: 58, fontWeight: '300', marginBottom: 16, letterSpacing: 1 },
+  subtitle: { fontSize: 18, marginBottom: 12, fontWeight: '500', letterSpacing: 0.3 },
+  description: { fontSize: 14, lineHeight: 22, maxWidth: '90%', fontWeight: '400' },
+  rightSection: { justifyContent: 'center', alignItems: 'center', marginBottom: 30 },
+  imageContainer: { width: '100%', alignItems: 'center' },
+  illustration: { width: 300, height: 300 },
+  form: { width: "100%", marginBottom: 20 },
+  inputContainer: { marginBottom: 22 },
+  label: { fontSize: 13, fontWeight: "600", marginBottom: 10, letterSpacing: 0.5 },
+  inputWrapper: { borderRadius: 14, borderWidth: 1.5 },
+  input: { padding: 18, fontSize: 16 },
+  hintText: { fontSize: 11, marginTop: 6, marginLeft: 4, fontWeight: "400" },
+  buttonContainer: { width: '100%', gap: 16 },
+  primaryButton: { paddingVertical: 18, paddingHorizontal: 40, borderRadius: 16, alignItems: 'center', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.25, shadowRadius: 8, elevation: 6 },
+  primaryButtonText: { fontSize: 18, fontWeight: '700', letterSpacing: 1 },
+  secondaryButton: { paddingVertical: 18, paddingHorizontal: 40, borderRadius: 16, alignItems: 'center', borderWidth: 2 },
+  secondaryButtonText: { fontSize: 18, fontWeight: '700', letterSpacing: 1 },
+  footerText: { fontSize: 14, textAlign: 'center' },
+  link: { fontWeight: "700" },
 });

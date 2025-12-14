@@ -13,10 +13,11 @@ import {
   View,
 } from 'react-native';
 import { Circle, Defs, RadialGradient, Stop, Svg } from 'react-native-svg';
+import { useTheme } from '../../contexts/ThemeContext';
 
 const { width, height } = Dimensions.get('window');
 
-// ============== ANIMATED STAR BACKGROUND ==============
+// ============== ANIMATED STAR BACKGROUND (DARK MODE) ==============
 const StarBackground = () => {
   const [stars, setStars] = useState<any[]>([]);
 
@@ -77,96 +78,112 @@ const StarBackground = () => {
   );
 };
 
-// ============== FLOATING ELEMENTS ==============
-const FloatingIcon = ({ emoji, delay, style }: any) => {
-  const translateY = useRef(new Animated.Value(0)).current;
-  const translateX = useRef(new Animated.Value(0)).current;
-  const opacity = useRef(new Animated.Value(0)).current;
-  const rotate = useRef(new Animated.Value(0)).current;
+// ============== FLOATING FLOWERS BACKGROUND (LIGHT MODE) ==============
+const FloatingFlowers = () => {
+  const [flowers, setFlowers] = useState<any[]>([]);
 
   useEffect(() => {
-    Animated.loop(
-      Animated.parallel([
-        Animated.sequence([
-          Animated.parallel([
-            Animated.timing(translateY, {
-              toValue: -15,
-              duration: 2500,
-              useNativeDriver: true,
-              delay,
-            }),
-            Animated.timing(translateX, {
-              toValue: 10,
-              duration: 2500,
-              useNativeDriver: true,
-              delay,
-            }),
-            Animated.timing(opacity, {
-              toValue: 0.7,
-              duration: 1200,
-              useNativeDriver: true,
-              delay,
-            }),
-            Animated.timing(rotate, {
-              toValue: 1,
-              duration: 2500,
-              useNativeDriver: true,
-              delay,
-            }),
-          ]),
-          Animated.parallel([
-            Animated.timing(translateY, {
-              toValue: 0,
-              duration: 2500,
-              useNativeDriver: true,
-            }),
-            Animated.timing(translateX, {
-              toValue: 0,
-              duration: 2500,
-              useNativeDriver: true,
-            }),
-            Animated.timing(opacity, {
-              toValue: 0.3,
-              duration: 1200,
-              useNativeDriver: true,
-            }),
-            Animated.timing(rotate, {
-              toValue: 0,
-              duration: 2500,
-              useNativeDriver: true,
-            }),
-          ]),
-        ]),
-      ])
-    ).start();
+    const newFlowers = Array.from({ length: 25 }, (_, i) => ({
+      id: i,
+      x: Math.random() * width,
+      y: Math.random() * height,
+      size: Math.random() * 30 + 20,
+      rotation: Math.random() * 360,
+      baseOpacity: Math.random() * 0.3 + 0.15,
+      speedX: (Math.random() - 0.5) * 0.15,
+      speedY: (Math.random() - 0.5) * 0.15,
+      rotationSpeed: (Math.random() - 0.5) * 0.3,
+      pulsePhase: Math.random() * Math.PI * 2,
+      pulseSpeed: Math.random() * 1 + 0.5,
+    }));
+    
+    setFlowers(newFlowers);
+
+    let animationRef = 0;
+    const animate = () => {
+      animationRef += 0.008;
+      setFlowers(prevFlowers => 
+        prevFlowers.map(flower => ({
+          ...flower,
+          x: (flower.x + flower.speedX + width) % width,
+          y: (flower.y + flower.speedY + height) % height,
+          rotation: (flower.rotation + flower.rotationSpeed) % 360,
+          opacity: flower.baseOpacity + Math.sin(animationRef * flower.pulseSpeed + flower.pulsePhase) * 0.15,
+        }))
+      );
+      requestAnimationFrame(animate);
+    };
+
+    const animationId = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(animationId);
   }, []);
 
-  const rotateInterpolate = rotate.interpolate({
-    inputRange: [0, 1],
-    outputRange: ['0deg', '15deg'],
-  });
+  return (
+    <View style={StyleSheet.absoluteFill} pointerEvents="none">
+      {flowers.map((flower) => (
+        <Animated.Image
+          key={flower.id}
+          source={require('../../assets/images/flower_money.png')}
+          style={{
+            position: 'absolute',
+            left: flower.x,
+            top: flower.y,
+            width: flower.size,
+            height: flower.size,
+            opacity: flower.opacity || flower.baseOpacity,
+            transform: [{ rotate: `${flower.rotation}deg` }],
+          }}
+        />
+      ))}
+    </View>
+  );
+};
+
+// ============== THEME TOGGLE BUTTON ==============
+const ThemeToggle = () => {
+  const { isDark, toggleTheme } = useTheme();
+  const scaleAnim = useRef(new Animated.Value(1)).current;
+
+  const handlePress = () => {
+    Animated.sequence([
+      Animated.timing(scaleAnim, {
+        toValue: 0.85,
+        duration: 100,
+        useNativeDriver: true,
+      }),
+      Animated.spring(scaleAnim, {
+        toValue: 1,
+        friction: 3,
+        useNativeDriver: true,
+      }),
+    ]).start();
+    toggleTheme();
+  };
 
   return (
-    <Animated.View
-      style={[
-        style,
-        {
-          opacity,
-          transform: [
-            { translateY },
-            { translateX },
-            { rotate: rotateInterpolate },
-          ],
-        },
-      ]}
+    <TouchableOpacity
+      onPress={handlePress}
+      activeOpacity={0.8}
+      style={styles.themeToggleContainer}
     >
-      <Text style={styles.floatingIcon}>{emoji}</Text>
-    </Animated.View>
+      <Animated.View
+        style={[
+          styles.themeToggle,
+          {
+            backgroundColor: isDark ? 'rgba(184, 164, 232, 0.25)' : 'rgba(212, 165, 165, 0.25)',
+            transform: [{ scale: scaleAnim }],
+          },
+        ]}
+      >
+        <Text style={styles.themeToggleIcon}>{isDark ? '🌙' : '☀️'}</Text>
+      </Animated.View>
+    </TouchableOpacity>
   );
 };
 
 // ============== ANIMATED BUTTON ==============
 const AnimatedButton = ({ title, onPress, isPrimary }: any) => {
+  const { theme } = useTheme();
   const scaleAnim = useRef(new Animated.Value(1)).current;
 
   const handlePressIn = () => {
@@ -195,16 +212,28 @@ const AnimatedButton = ({ title, onPress, isPrimary }: any) => {
       <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
         {isPrimary ? (
           <LinearGradient
-            colors={['#B4A4F8', '#9B8AE8', '#8B7AD8']}
+            colors={theme.buttonPrimary}
             style={styles.primaryButton}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
           >
-            <Text style={styles.primaryButtonText}>{title}</Text>
+            <Text style={[styles.primaryButtonText, { color: theme.primaryText }]}>
+              {title}
+            </Text>
           </LinearGradient>
         ) : (
-          <View style={styles.secondaryButton}>
-            <Text style={styles.secondaryButtonText}>{title}</Text>
+          <View
+            style={[
+              styles.secondaryButton,
+              {
+                backgroundColor: theme.buttonSecondary,
+                borderColor: theme.buttonSecondaryBorder,
+              },
+            ]}
+          >
+            <Text style={[styles.secondaryButtonText, { color: theme.accent[0] }]}>
+              {title}
+            </Text>
           </View>
         )}
       </Animated.View>
@@ -214,6 +243,7 @@ const AnimatedButton = ({ title, onPress, isPrimary }: any) => {
 
 export default function WelcomeScreen() {
   const router = useRouter();
+  const { theme, isDark } = useTheme();
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(30)).current;
 
@@ -235,24 +265,20 @@ export default function WelcomeScreen() {
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#1A1428" />
+      <StatusBar barStyle={theme.statusBarStyle} />
       
       <LinearGradient
-        colors={['#1A1428', '#2D1B3D', '#1A1428', '#2D1B3D']}
+        colors={theme.background}
         style={StyleSheet.absoluteFill}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
-        locations={[0, 0.3, 0.7, 1]}
+        locations={theme.backgroundLocations}
       />
       
-      <StarBackground />
+      {isDark ? <StarBackground /> : <FloatingFlowers />}
 
-      {/* Floating decorative icons */}
-      <FloatingIcon emoji="💰" delay={0} style={styles.floatingIcon1} />
-      <FloatingIcon emoji="📊" delay={600} style={styles.floatingIcon2} />
-      <FloatingIcon emoji="💳" delay={1200} style={styles.floatingIcon3} />
-      <FloatingIcon emoji="🎯" delay={1800} style={styles.floatingIcon4} />
-      <FloatingIcon emoji="💸" delay={2400} style={styles.floatingIcon5} />
+      {/* Theme Toggle Button */}
+      <ThemeToggle />
 
       <Animated.View
         style={[
@@ -263,27 +289,33 @@ export default function WelcomeScreen() {
           },
         ]}
       >
-        {/* Left side - Text */}
+        {/* Text */}
         <View style={styles.leftSection}>
-          <Text style={styles.title}>Welcome</Text>
-          <Text style={styles.subtitle}>Track your expenses effortlessly</Text>
-          <Text style={styles.description}>
+          <Text style={[styles.title, { color: theme.primaryText }]}>Welcome</Text>
+          <Text style={[styles.subtitle, { color: theme.secondaryText }]}>
+            Track your expenses effortlessly
+          </Text>
+          <Text style={[styles.description, { color: theme.tertiaryText }]}>
             Manage your budget, visualize spending, and achieve your financial goals
           </Text>
         </View>
 
-        {/* Right side - Illustration */}
+        {/* Illustration */}
         <View style={styles.rightSection}>
           <View style={styles.imageContainer}>
             <Image
-              source={require('../../assets/images/money_plant.png')}
+              source={
+                isDark
+                  ? require('../../assets/images/money_plant.png')
+                  : require('../../assets/images/money_save.png')
+              }
               style={styles.illustration}
               resizeMode="contain"
             />
           </View>
         </View>
 
-        {/* Buttons at bottom */}
+        {/* Buttons */}
         <View style={styles.buttonContainer}>
           <AnimatedButton
             title="Log In"
@@ -311,26 +343,39 @@ const styles = StyleSheet.create({
     paddingTop: 60,
     paddingBottom: 40,
   },
+  themeToggleContainer: {
+    position: 'absolute',
+    top: 50,
+    right: 24,
+    zIndex: 100,
+  },
+  themeToggle: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  themeToggleIcon: {
+    fontSize: 26,
+  },
   leftSection: {
     marginBottom: 40,
   },
   title: {
     fontSize: 58,
     fontWeight: '300',
-    color: '#FFFFFF',
     marginBottom: 16,
     letterSpacing: 1,
   },
   subtitle: {
     fontSize: 18,
-    color: '#B8A4E8',
     marginBottom: 12,
     fontWeight: '500',
     letterSpacing: 0.3,
   },
   description: {
     fontSize: 14,
-    color: '#8B7AA8',
     lineHeight: 22,
     maxWidth: '90%',
     fontWeight: '400',
@@ -358,14 +403,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 40,
     borderRadius: 16,
     alignItems: 'center',
-    shadowColor: '#E8B4F8',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.4,
-    shadowRadius: 12,
-    elevation: 8,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 6,
   },
   primaryButtonText: {
-    color: '#FFFFFF',
     fontSize: 18,
     fontWeight: '700',
     letterSpacing: 1,
@@ -376,41 +419,10 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     alignItems: 'center',
     borderWidth: 2,
-    borderColor: 'rgba(184, 164, 232, 0.4)',
-    backgroundColor: 'rgba(45, 38, 64, 0.5)',
   },
   secondaryButtonText: {
-    color: '#E8B4F8',
     fontSize: 18,
     fontWeight: '700',
     letterSpacing: 1,
-  },
-  floatingIcon: {
-    fontSize: 36,
-  },
-  floatingIcon1: {
-    position: 'absolute',
-    top: '12%',
-    left: '8%',
-  },
-  floatingIcon2: {
-    position: 'absolute',
-    top: '18%',
-    right: '12%',
-  },
-  floatingIcon3: {
-    position: 'absolute',
-    top: '35%',
-    left: '15%',
-  },
-  floatingIcon4: {
-    position: 'absolute',
-    bottom: '35%',
-    right: '10%',
-  },
-  floatingIcon5: {
-    position: 'absolute',
-    bottom: '25%',
-    left: '12%',
   },
 });
