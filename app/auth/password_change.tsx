@@ -1,32 +1,31 @@
-// app/auth/login.tsx
+// app/auth/password_change.tsx
 import CryptoJS from 'crypto-js';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Stack, router } from "expo-router";
-import { signInWithEmailAndPassword } from "firebase/auth";
-import { collection, getDocs, query, where } from "firebase/firestore";
+import { Stack, router, useLocalSearchParams } from "expo-router";
+import { collection, doc, getDocs, query, updateDoc, where } from "firebase/firestore";
 import React, { useEffect, useRef, useState } from "react";
 import {
-  Alert,
-  Animated,
-  Dimensions,
-  Image,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    Alert,
+    Animated,
+    Dimensions,
+    Image,
+    KeyboardAvoidingView,
+    Platform,
+    ScrollView,
+    StatusBar,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import { Circle, Defs, RadialGradient, Stop, Svg } from 'react-native-svg';
 import { useTheme } from '../../contexts/ThemeContext';
-import { auth, db } from "../../src2/firebase/config";
+import { db } from "../../src2/firebase/config";
 
 const { width, height } = Dimensions.get('window');
 
-// Password hashing function using SHA-256 (must match password_change.tsx)
+// Password hashing function using SHA-256
 const hashPassword = (password: string): string => {
   return CryptoJS.SHA256(password).toString();
 };
@@ -217,17 +216,38 @@ const AnimatedButton = ({ title, onPress, isPrimary, disabled }: any) => {
   );
 };
 
-export default function LoginScreen() {
+export default function PasswordChangeScreen() {
   const { theme, isDark } = useTheme();
-  const [emailOrPhone, setEmailOrPhone] = useState("");
-  const [password, setPassword] = useState("");
+  const params = useLocalSearchParams();
+  const userId = params.userId as string;
+  const credential = params.credential as string;
+  const method = params.method as string;
+
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [focusedField, setFocusedField] = useState<string | null>(null);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [foundUserId, setFoundUserId] = useState<string | null>(null);
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(30)).current;
 
   useEffect(() => {
+    // Check if we have userId OR credential+method
+    if (!userId && (!credential || !method)) {
+      Alert.alert("Error", "Invalid session. Please try again.", [
+        { text: "OK", onPress: () => router.replace("/auth/login-options") }
+      ]);
+      return;
+    }
+
+    // If credential and method provided (from forgot password), find the user
+    if (credential && method && !userId) {
+      findUserByCredential();
+    }
+
     Animated.parallel([
       Animated.timing(fadeAnim, {
         toValue: 1,
@@ -243,105 +263,101 @@ export default function LoginScreen() {
     ]).start();
   }, []);
 
-  const validateEmail = (email: string) => {
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    return emailRegex.test(email);
+  const findUserByCredential = async () => {
+    try {
+      const usersRef = collection(db, "users");
+      const q = query(usersRef, where(method, "==", credential));
+      const querySnapshot = await getDocs(q);
+      
+      if (!querySnapshot.empty) {
+        const userDoc = querySnapshot.docs[0];
+        setFoundUserId(userDoc.id);
+      } else {
+        Alert.alert("Error", "User not found. Please try again.", [
+          { text: "OK", onPress: () => router.replace("/auth/login-options") }
+        ]);
+      }
+    } catch (error) {
+      console.error("Error finding user:", error);
+      Alert.alert("Error", "Failed to verify user. Please try again.", [
+        { text: "OK", onPress: () => router.replace("/auth/login-options") }
+      ]);
+    }
   };
 
-  const validatePhoneNumber = (phone: string) => {
-    // Indian phone number format: 10 digits
-    const phoneRegex = /^[6-9]\d{9}$/;
-    return phoneRegex.test(phone);
-  };
-
-  const login = async () => {
-    if (!emailOrPhone.trim()) {
-      Alert.alert("Missing Credential", "Please enter your email or phone number");
-      return;
-    }
-
-    const isEmail = validateEmail(emailOrPhone.trim());
-    const isPhone = validatePhoneNumber(emailOrPhone.trim());
-
-    if (!isEmail && !isPhone) {
-      Alert.alert("Invalid Input", "Please enter a valid email address or 10-digit phone number");
-      return;
-    }
-
-    if (!password) {
-      Alert.alert("Missing Password", "Please enter your password");
-      return;
-    }
-
+  const validatePassword = (password: string) => {
     if (password.length < 6) {
-      Alert.alert("Invalid Password", "Password must be at least 6 characters");
+      return "Password must be at least 6 characters long";
+    }
+    if (!/[A-Z]/.test(password)) {
+      return "Password must contain at least one uppercase letter";
+    }
+    if (!/[a-z]/.test(password)) {
+      return "Password must contain at least one lowercase letter";
+    }
+    if (!/[0-9]/.test(password)) {
+      return "Password must contain at least one number";
+    }
+    return null;
+  };
+
+  const handleChangePassword = async () => {
+    if (!newPassword.trim() || !confirmPassword.trim()) {
+      Alert.alert("Missing Input", "Please fill in all fields");
+      return;
+    }
+
+    const passwordError = validatePassword(newPassword);
+    if (passwordError) {
+      Alert.alert("Invalid Password", passwordError);
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      Alert.alert("Password Mismatch", "Passwords do not match");
+      return;
+    }
+
+    // Determine which user ID to use
+    const targetUserId = userId || foundUserId;
+    
+    if (!targetUserId) {
+      Alert.alert("Error", "Unable to identify user. Please try again.");
       return;
     }
 
     setLoading(true);
     try {
-      // Hash the entered password
-      const hashedPassword = hashPassword(password);
+      // Hash the new password
+      const hashedPassword = hashPassword(newPassword);
 
-      // Query Firestore to find user by email or phone
-      const usersRef = collection(db, "users");
-      let userQuery;
+      // Update ONLY Firestore - this is the source of truth for passwords
+      const userDocRef = doc(db, "users", targetUserId);
+      await updateDoc(userDocRef, {
+        password: hashedPassword,
+        passwordUpdatedAt: new Date(),
+      });
 
-      if (isEmail) {
-        userQuery = query(usersRef, where("email", "==", emailOrPhone.trim()));
-      } else {
-        userQuery = query(usersRef, where("phoneNumber", "==", emailOrPhone.trim()));
-      }
+      console.log("Password updated successfully in Firestore for user:", targetUserId);
 
-      const querySnapshot = await getDocs(userQuery);
-
-      if (querySnapshot.empty) {
-        Alert.alert(
-          "Account Not Found",
-          "No account exists with this credential. Would you like to sign up?",
-          [
-            { text: "Cancel", style: "cancel" },
-            { text: "Sign Up", onPress: () => router.push("/auth/signup") }
-          ]
-        );
-        return;
-      }
-
-      // Get the user document
-      const userDoc = querySnapshot.docs[0];
-      const userData = userDoc.data();
-
-      // Compare hashed passwords - THIS IS THE ONLY PASSWORD CHECK (FIRESTORE ONLY)
-      if (userData.password !== hashedPassword) {
-        Alert.alert("Incorrect Password", "The password you entered is incorrect. Please try again.");
-        return;
-      }
-
-      // Password matches in Firestore - now sign in with Firebase Auth
-      // We still use Firebase Auth for session management, but NOT for password validation
-      const loginCredential = isEmail ? emailOrPhone.trim() : `${emailOrPhone.trim()}@phone.app`;
-      
-      try {
-        await signInWithEmailAndPassword(auth, loginCredential, password);
-        console.log("Login successful for user:", userDoc.id);
-        router.replace("/(tabs)/dashboard");
-      } catch (authError: any) {
-        // If Firebase Auth fails but Firestore password matches, still allow login
-        // This ensures Firestore is the source of truth
-        console.log("Firebase Auth error (ignoring):", authError.code);
-        console.log("Allowing login based on Firestore password match");
-        router.replace("/(tabs)/dashboard");
-      }
-    } catch (err: any) {
-      console.error("Login error:", err);
       Alert.alert(
-        "Login Failed",
-        "An error occurred during login. Please try again.",
+        "Password Changed Successfully! 🎉",
+        "Redirecting to login...",
         [
-          { text: "OK", style: "cancel" },
-          { text: "Sign Up", onPress: () => router.push("/auth/signup") }
+          {
+            text: "OK",
+            onPress: () => router.replace("/auth/login")
+          }
         ]
       );
+      
+      // Auto redirect after 2 seconds if user doesn't click OK
+      setTimeout(() => {
+        router.replace("/auth/login");
+      }, 2000);
+    } catch (error) {
+      console.error("Error changing password:", error);
+      Alert.alert("Error", "Failed to change password. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -381,12 +397,11 @@ export default function LoginScreen() {
             ]}
           >
             <View style={styles.leftSection}>
-              <Text style={[styles.title, { color: theme.primaryText }]}>Log In</Text>
-              <Text style={[styles.subtitle, { color: theme.secondaryText }]}>
-                Track your expenses effortlessly
+              <Text style={[styles.title, { color: theme.primaryText }]}>
+                Reset Password
               </Text>
-              <Text style={[styles.description, { color: theme.tertiaryText }]}>
-                Manage your budget, visualize spending, and achieve your financial goals
+              <Text style={[styles.subtitle, { color: theme.secondaryText }]}>
+                Create a strong new password for your account
               </Text>
             </View>
 
@@ -406,83 +421,101 @@ export default function LoginScreen() {
 
             <View style={styles.form}>
               <View style={styles.inputContainer}>
-                <Text style={[styles.label, { color: theme.secondaryText }]}>Email or Phone Number</Text>
+                <Text style={[styles.label, { color: theme.secondaryText }]}>
+                  New Password
+                </Text>
                 <Animated.View
                   style={[
                     styles.inputWrapper,
                     {
                       backgroundColor: theme.inputBackground,
-                      borderColor: focusedField === 'emailOrPhone' ? theme.inputBorderFocused : theme.inputBorder,
+                      borderColor: focusedField === 'newPassword' ? theme.inputBorderFocused : theme.inputBorder,
                     },
                   ]}
                 >
                   <TextInput
-                    placeholder="9876543210"
+                    placeholder="Enter new password"
                     placeholderTextColor={theme.inputPlaceholder}
-                    autoCapitalize="none"
-                    keyboardType="default"
-                    value={emailOrPhone}
-                    onChangeText={setEmailOrPhone}
-                    onFocus={() => setFocusedField('emailOrPhone')}
+                    secureTextEntry={!showNewPassword}
+                    value={newPassword}
+                    onChangeText={setNewPassword}
+                    onFocus={() => setFocusedField('newPassword')}
                     onBlur={() => setFocusedField(null)}
                     style={[styles.input, { color: theme.primaryText }]}
                     editable={!loading}
+                    autoCapitalize="none"
                   />
+                  <TouchableOpacity
+                    onPress={() => setShowNewPassword(!showNewPassword)}
+                    style={styles.eyeIcon}
+                  >
+                    <Text style={{ fontSize: 20 }}>
+                      {showNewPassword ? '👁️' : '👁️‍🗨️'}
+                    </Text>
+                  </TouchableOpacity>
                 </Animated.View>
               </View>
 
               <View style={styles.inputContainer}>
-                <View style={styles.labelRow}>
-                  <Text style={[styles.label, { color: theme.secondaryText }]}>Password</Text>
-                  <TouchableOpacity 
-                    onPress={() => router.push("/auth/forgot_password_login")}
-                    disabled={loading}
-                  >
-                    <Text style={[styles.forgotPassword, { color: theme.accent[0] }]}>
-                      Forgot Password?
-                    </Text>
-                  </TouchableOpacity>
-                </View>
+                <Text style={[styles.label, { color: theme.secondaryText }]}>
+                  Confirm Password
+                </Text>
                 <Animated.View
                   style={[
                     styles.inputWrapper,
                     {
                       backgroundColor: theme.inputBackground,
-                      borderColor: focusedField === 'password' ? theme.inputBorderFocused : theme.inputBorder,
+                      borderColor: focusedField === 'confirmPassword' ? theme.inputBorderFocused : theme.inputBorder,
                     },
                   ]}
                 >
                   <TextInput
-                    placeholder="••••••••"
+                    placeholder="Confirm new password"
                     placeholderTextColor={theme.inputPlaceholder}
-                    secureTextEntry
-                    value={password}
-                    onChangeText={setPassword}
-                    onFocus={() => setFocusedField('password')}
+                    secureTextEntry={!showConfirmPassword}
+                    value={confirmPassword}
+                    onChangeText={setConfirmPassword}
+                    onFocus={() => setFocusedField('confirmPassword')}
                     onBlur={() => setFocusedField(null)}
                     style={[styles.input, { color: theme.primaryText }]}
                     editable={!loading}
+                    autoCapitalize="none"
                   />
+                  <TouchableOpacity
+                    onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+                    style={styles.eyeIcon}
+                  >
+                    <Text style={{ fontSize: 20 }}>
+                      {showConfirmPassword ? '👁️' : '👁️‍🗨️'}
+                    </Text>
+                  </TouchableOpacity>
                 </Animated.View>
               </View>
-            </View>
 
-            <View style={styles.buttonContainer}>
+              <View style={styles.passwordRequirements}>
+                <Text style={[styles.requirementsTitle, { color: theme.secondaryText }]}>
+                  Password must contain:
+                </Text>
+                <Text style={[styles.requirementText, { color: theme.tertiaryText }]}>
+                  • At least 6 characters
+                </Text>
+                <Text style={[styles.requirementText, { color: theme.tertiaryText }]}>
+                  • One uppercase letter (A-Z)
+                </Text>
+                <Text style={[styles.requirementText, { color: theme.tertiaryText }]}>
+                  • One lowercase letter (a-z)
+                </Text>
+                <Text style={[styles.requirementText, { color: theme.tertiaryText }]}>
+                  • One number (0-9)
+                </Text>
+              </View>
+
               <AnimatedButton
-                title={loading ? "Signing in..." : "Sign In"}
+                title={loading ? "Changing Password..." : "Reset Password"}
                 isPrimary={true}
-                onPress={login}
+                onPress={handleChangePassword}
                 disabled={loading}
               />
-              <TouchableOpacity 
-                onPress={() => router.push("/auth/signup")}
-                disabled={loading}
-              >
-                <Text style={[styles.footerText, { color: theme.secondaryText }]}>
-                  Don't have an account?{' '}
-                  <Text style={[styles.link, { color: theme.accent[0] }]}>Sign Up</Text>
-                </Text>
-              </TouchableOpacity>
             </View>
           </Animated.View>
         </ScrollView>
@@ -497,24 +530,22 @@ const styles = StyleSheet.create({
   scrollContent: { flexGrow: 1 },
   content: { paddingHorizontal: 32, paddingTop: 60, paddingBottom: 40 },
   leftSection: { marginBottom: 30 },
-  title: { fontSize: 58, fontWeight: '300', marginBottom: 16, letterSpacing: 1 },
-  subtitle: { fontSize: 18, marginBottom: 12, fontWeight: '500', letterSpacing: 0.3 },
-  description: { fontSize: 14, lineHeight: 22, maxWidth: '90%', fontWeight: '400' },
+  title: { fontSize: 48, fontWeight: '300', marginBottom: 16, letterSpacing: 1 },
+  subtitle: { fontSize: 16, marginBottom: 12, fontWeight: '500', letterSpacing: 0.3 },
   rightSection: { justifyContent: 'center', alignItems: 'center', marginBottom: 30 },
   imageContainer: { width: '100%', alignItems: 'center' },
-  illustration: { width: 300, height: 300 },
-  form: { width: "100%", marginBottom: 20 },
-  inputContainer: { marginBottom: 22 },
-  labelRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
-  label: { fontSize: 13, fontWeight: "600", letterSpacing: 0.5 },
-  forgotPassword: { fontSize: 13, fontWeight: "600", letterSpacing: 0.3 },
-  inputWrapper: { borderRadius: 14, borderWidth: 1.5 },
-  input: { padding: 18, fontSize: 16 },
-  buttonContainer: { width: '100%', gap: 16 },
+  illustration: { width: 280, height: 280 },
+  form: { width: "100%", gap: 20 },
+  inputContainer: { marginBottom: 0 },
+  label: { fontSize: 13, fontWeight: "600", marginBottom: 10, letterSpacing: 0.5 },
+  inputWrapper: { borderRadius: 14, borderWidth: 1.5, flexDirection: 'row', alignItems: 'center' },
+  input: { flex: 1, padding: 18, fontSize: 16 },
+  eyeIcon: { paddingHorizontal: 16 },
+  passwordRequirements: { marginTop: 8, marginBottom: 8 },
+  requirementsTitle: { fontSize: 13, fontWeight: '600', marginBottom: 8 },
+  requirementText: { fontSize: 12, marginBottom: 4, marginLeft: 8 },
   primaryButton: { paddingVertical: 18, paddingHorizontal: 40, borderRadius: 16, alignItems: 'center', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.25, shadowRadius: 8, elevation: 6 },
   primaryButtonText: { fontSize: 18, fontWeight: '700', letterSpacing: 1 },
   secondaryButton: { paddingVertical: 18, paddingHorizontal: 40, borderRadius: 16, alignItems: 'center', borderWidth: 2 },
   secondaryButtonText: { fontSize: 18, fontWeight: '700', letterSpacing: 1 },
-  footerText: { fontSize: 14, textAlign: 'center' },
-  link: { fontWeight: "700" },
 });

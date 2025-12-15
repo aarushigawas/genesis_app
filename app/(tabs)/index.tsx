@@ -315,17 +315,17 @@ export default function WelcomeScreen() {
           </View>
         </View>
 
-        {/* Buttons */}
+        {/* Buttons - Updated routes */}
         <View style={styles.buttonContainer}>
           <AnimatedButton
             title="Log In"
             isPrimary={false}
-            onPress={() => router.push('/auth/login')}
+            onPress={() => router.push('/auth/login-options')}
           />
           <AnimatedButton
             title="Sign Up"
             isPrimary={true}
-            onPress={() => router.push('/auth/signup')}
+            onPress={() => router.push('/auth/signup-options')}
           />
         </View>
       </Animated.View>

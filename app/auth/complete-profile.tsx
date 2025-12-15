@@ -1,24 +1,26 @@
-// app/auth/signup.tsx
+// app/auth/complete-profile.tsx
 import { LinearGradient } from 'expo-linear-gradient';
-import { Stack, router } from "expo-router";
+import { Stack, router, useLocalSearchParams } from "expo-router";
+import { doc, updateDoc } from 'firebase/firestore';
 import React, { useEffect, useRef, useState } from "react";
 import {
-  Alert,
-  Animated,
-  Dimensions,
-  Image,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    Alert,
+    Animated,
+    Dimensions,
+    Image,
+    KeyboardAvoidingView,
+    Platform,
+    ScrollView,
+    StatusBar,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import { Circle, Defs, RadialGradient, Stop, Svg } from 'react-native-svg';
 import { useTheme } from '../../contexts/ThemeContext';
+import { db } from "../../src2/firebase/config";
 
 const { width, height } = Dimensions.get('window');
 
@@ -208,15 +210,13 @@ const AnimatedButton = ({ title, onPress, isPrimary, disabled }: any) => {
   );
 };
 
-export default function SignUpScreen() {
-  const { theme, isDark, toggleTheme } = useTheme();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [name, setName] = useState("");
-  const [username, setUsername] = useState("");
+export default function CompleteProfileScreen() {
+  const { theme, isDark } = useTheme();
+  const params = useLocalSearchParams();
+  const { userId, email, name } = params;
+  
   const [phoneNumber, setPhoneNumber] = useState("");
-  const [countryCode, setCountryCode] = useState("+91"); // Default to India
+  const [countryCode, setCountryCode] = useState("+91");
   const [loading, setLoading] = useState(false);
   const [focusedField, setFocusedField] = useState<string | null>(null);
 
@@ -239,49 +239,14 @@ export default function SignUpScreen() {
     ]).start();
   }, []);
 
-  const validateEmail = (email: string) => {
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    return emailRegex.test(email);
-  };
-
-  const validatePassword = (password: string) => {
-    const errors = [];
-    if (password.length < 6) errors.push("at least 6 characters");
-    if (!/[A-Z]/.test(password)) errors.push("one uppercase letter");
-    if (!/[a-z]/.test(password)) errors.push("one lowercase letter");
-    if (!/[0-9]/.test(password)) errors.push("one number");
-    return errors;
-  };
-
   const validatePhoneNumber = (phone: string) => {
-    // Basic phone validation - at least 7 digits
     const phoneRegex = /^\d{7,15}$/;
     return phoneRegex.test(phone);
   };
 
-  const signup = async () => {
-    if (!name.trim()) {
-      Alert.alert("Missing Name", "Please enter your full name");
-      return;
-    }
-
-    if (!username.trim()) {
-      Alert.alert("Missing Username", "Please enter a username");
-      return;
-    }
-
-    if (!email.trim()) {
-      Alert.alert("Missing Email", "Please enter your email address");
-      return;
-    }
-
-    if (!validateEmail(email.trim())) {
-      Alert.alert("Invalid Email", "Please enter a valid email address");
-      return;
-    }
-
+  const handleComplete = async () => {
     if (!phoneNumber.trim()) {
-      Alert.alert("Missing Phone Number", "Please enter your phone number for account security and alerts");
+      Alert.alert("Missing Phone Number", "Please enter your phone number to continue");
       return;
     }
 
@@ -290,34 +255,28 @@ export default function SignUpScreen() {
       return;
     }
 
-    if (!password) {
-      Alert.alert("Missing Password", "Please enter a password");
-      return;
-    }
-
-    const passwordErrors = validatePassword(password);
-    if (passwordErrors.length > 0) {
-      Alert.alert("Weak Password", `Your password must contain ${passwordErrors.join(", ")}`);
-      return;
-    }
-
-    if (password !== confirmPassword) {
-      Alert.alert("Passwords Don't Match", "Please make sure both passwords match");
-      return;
-    }
-
-    // Navigate to verification screen with user data
-    router.push({
-      pathname: "/auth/verification_signup",
-      params: {
-        name: name.trim(),
-        username: username.trim().toLowerCase(),
-        email: email.trim(),
+    setLoading(true);
+    try {
+      // Update user document with phone number
+      const userDocRef = doc(db, 'users', userId as string);
+      await updateDoc(userDocRef, {
         phoneNumber: phoneNumber.trim(),
         countryCode: countryCode,
-        password: password,
-      }
-    });
+        profileCompleted: true,
+        updatedAt: new Date(),
+      });
+
+      // Navigate to dashboard
+      router.replace('/(tabs)/dashboard');
+    } catch (error: any) {
+      console.error('Profile Update Error:', error);
+      Alert.alert(
+        'Update Failed',
+        'Failed to update your profile. Please try again.'
+      );
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -334,14 +293,6 @@ export default function SignUpScreen() {
       />
       
       {isDark ? <StarBackground /> : <FloatingFlowers />}
-
-      {/* Theme Toggle Button */}
-      <TouchableOpacity 
-        style={styles.themeToggle}
-        onPress={toggleTheme}
-      >
-        <Text style={styles.themeToggleIcon}>{isDark ? '☀️' : '🌙'}</Text>
-      </TouchableOpacity>
 
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : "height"}
@@ -362,12 +313,12 @@ export default function SignUpScreen() {
             ]}
           >
             <View style={styles.leftSection}>
-              <Text style={[styles.title, { color: theme.primaryText }]}>Sign Up</Text>
+              <Text style={[styles.title, { color: theme.primaryText }]}>Complete Profile</Text>
               <Text style={[styles.subtitle, { color: theme.secondaryText }]}>
-                Track your expenses effortlessly
+                One more step to get started
               </Text>
               <Text style={[styles.description, { color: theme.tertiaryText }]}>
-                Manage your budget, visualize spending, and achieve your financial goals
+                We couldn't find a phone number linked to your Google account. Please add one to secure your account and continue.
               </Text>
             </View>
 
@@ -385,88 +336,23 @@ export default function SignUpScreen() {
               </View>
             </View>
 
+            <View style={styles.infoCard}>
+              <Text style={[styles.infoTitle, { color: theme.primaryText }]}>
+                Account Information
+              </Text>
+              <View style={styles.infoRow}>
+                <Text style={[styles.infoLabel, { color: theme.tertiaryText }]}>Name:</Text>
+                <Text style={[styles.infoValue, { color: theme.secondaryText }]}>{name}</Text>
+              </View>
+              <View style={styles.infoRow}>
+                <Text style={[styles.infoLabel, { color: theme.tertiaryText }]}>Email:</Text>
+                <Text style={[styles.infoValue, { color: theme.secondaryText }]}>{email}</Text>
+              </View>
+            </View>
+
             <View style={styles.form}>
               <View style={styles.inputContainer}>
-                <Text style={[styles.label, { color: theme.secondaryText }]}>Full Name</Text>
-                <Animated.View
-                  style={[
-                    styles.inputWrapper,
-                    {
-                      backgroundColor: theme.inputBackground,
-                      borderColor: focusedField === 'name' ? theme.inputBorderFocused : theme.inputBorder,
-                    },
-                  ]}
-                >
-                  <TextInput
-                    placeholder="Your full name"
-                    placeholderTextColor={theme.inputPlaceholder}
-                    autoCapitalize="words"
-                    value={name}
-                    onChangeText={setName}
-                    onFocus={() => setFocusedField('name')}
-                    onBlur={() => setFocusedField(null)}
-                    style={[styles.input, { color: theme.primaryText }]}
-                    editable={!loading}
-                  />
-                </Animated.View>
-              </View>
-
-              <View style={styles.inputContainer}>
-                <Text style={[styles.label, { color: theme.secondaryText }]}>Username</Text>
-                <Animated.View
-                  style={[
-                    styles.inputWrapper,
-                    {
-                      backgroundColor: theme.inputBackground,
-                      borderColor: focusedField === 'username' ? theme.inputBorderFocused : theme.inputBorder,
-                    },
-                  ]}
-                >
-                  <TextInput
-                    placeholder="Choose a username"
-                    placeholderTextColor={theme.inputPlaceholder}
-                    autoCapitalize="none"
-                    value={username}
-                    onChangeText={setUsername}
-                    onFocus={() => setFocusedField('username')}
-                    onBlur={() => setFocusedField(null)}
-                    style={[styles.input, { color: theme.primaryText }]}
-                    editable={!loading}
-                  />
-                </Animated.View>
-                <Text style={[styles.hintText, { color: theme.tertiaryText }]}>
-                  This will be your visible identity in the app
-                </Text>
-              </View>
-
-              <View style={styles.inputContainer}>
-                <Text style={[styles.label, { color: theme.secondaryText }]}>Email Address</Text>
-                <Animated.View
-                  style={[
-                    styles.inputWrapper,
-                    {
-                      backgroundColor: theme.inputBackground,
-                      borderColor: focusedField === 'email' ? theme.inputBorderFocused : theme.inputBorder,
-                    },
-                  ]}
-                >
-                  <TextInput
-                    placeholder="your@email.com"
-                    placeholderTextColor={theme.inputPlaceholder}
-                    autoCapitalize="none"
-                    keyboardType="email-address"
-                    value={email}
-                    onChangeText={setEmail}
-                    onFocus={() => setFocusedField('email')}
-                    onBlur={() => setFocusedField(null)}
-                    style={[styles.input, { color: theme.primaryText }]}
-                    editable={!loading}
-                  />
-                </Animated.View>
-              </View>
-
-              <View style={styles.inputContainer}>
-                <Text style={[styles.label, { color: theme.secondaryText }]}>Phone Number</Text>
+                <Text style={[styles.label, { color: theme.secondaryText }]}>Phone Number *</Text>
                 <View style={styles.phoneContainer}>
                   <Animated.View
                     style={[
@@ -515,77 +401,15 @@ export default function SignUpScreen() {
                   Required for account security, alerts, and verification
                 </Text>
               </View>
-
-              <View style={styles.inputContainer}>
-                <Text style={[styles.label, { color: theme.secondaryText }]}>Password</Text>
-                <Animated.View
-                  style={[
-                    styles.inputWrapper,
-                    {
-                      backgroundColor: theme.inputBackground,
-                      borderColor: focusedField === 'password' ? theme.inputBorderFocused : theme.inputBorder,
-                    },
-                  ]}
-                >
-                  <TextInput
-                    placeholder="••••••••"
-                    placeholderTextColor={theme.inputPlaceholder}
-                    secureTextEntry
-                    value={password}
-                    onChangeText={setPassword}
-                    onFocus={() => setFocusedField('password')}
-                    onBlur={() => setFocusedField(null)}
-                    style={[styles.input, { color: theme.primaryText }]}
-                    editable={!loading}
-                  />
-                </Animated.View>
-                <Text style={[styles.hintText, { color: theme.tertiaryText }]}>
-                  Must be 6+ characters with uppercase, lowercase, and number
-                </Text>
-              </View>
-
-              <View style={styles.inputContainer}>
-                <Text style={[styles.label, { color: theme.secondaryText }]}>Confirm Password</Text>
-                <Animated.View
-                  style={[
-                    styles.inputWrapper,
-                    {
-                      backgroundColor: theme.inputBackground,
-                      borderColor: focusedField === 'confirmPassword' ? theme.inputBorderFocused : theme.inputBorder,
-                    },
-                  ]}
-                >
-                  <TextInput
-                    placeholder="••••••••"
-                    placeholderTextColor={theme.inputPlaceholder}
-                    secureTextEntry
-                    value={confirmPassword}
-                    onChangeText={setConfirmPassword}
-                    onFocus={() => setFocusedField('confirmPassword')}
-                    onBlur={() => setFocusedField(null)}
-                    style={[styles.input, { color: theme.primaryText }]}
-                    editable={!loading}
-                  />
-                </Animated.View>
-              </View>
             </View>
 
             <View style={styles.buttonContainer}>
               <AnimatedButton
-                title={loading ? "Processing..." : "Continue"}
+                title={loading ? "Saving..." : "Continue"}
                 isPrimary={true}
-                onPress={signup}
+                onPress={handleComplete}
                 disabled={loading}
               />
-              <TouchableOpacity 
-                onPress={() => router.push("/auth/login")}
-                disabled={loading}
-              >
-                <Text style={[styles.footerText, { color: theme.secondaryText }]}>
-                  Already have an account?{' '}
-                  <Text style={[styles.link, { color: theme.accent[0] }]}>Log In</Text>
-                </Text>
-              </TouchableOpacity>
             </View>
           </Animated.View>
         </ScrollView>
@@ -600,42 +424,48 @@ const styles = StyleSheet.create({
   scrollContent: { flexGrow: 1 },
   content: { paddingHorizontal: 32, paddingTop: 60, paddingBottom: 40 },
   leftSection: { marginBottom: 30 },
-  title: { fontSize: 58, fontWeight: '300', marginBottom: 16, letterSpacing: 1 },
+  title: { fontSize: 48, fontWeight: '300', marginBottom: 16, letterSpacing: 1 },
   subtitle: { fontSize: 18, marginBottom: 12, fontWeight: '500', letterSpacing: 0.3 },
   description: { fontSize: 14, lineHeight: 22, maxWidth: '90%', fontWeight: '400' },
   rightSection: { justifyContent: 'center', alignItems: 'center', marginBottom: 30 },
   imageContainer: { width: '100%', alignItems: 'center' },
-  illustration: { width: 300, height: 300 },
+  illustration: { width: 250, height: 250 },
+  infoCard: {
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 30,
+  },
+  infoTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 12,
+  },
+  infoRow: {
+    flexDirection: 'row',
+    marginBottom: 8,
+  },
+  infoLabel: {
+    fontSize: 14,
+    fontWeight: '500',
+    width: 70,
+  },
+  infoValue: {
+    fontSize: 14,
+    flex: 1,
+  },
   form: { width: "100%", marginBottom: 20 },
   inputContainer: { marginBottom: 22 },
   label: { fontSize: 13, fontWeight: "600", marginBottom: 10, letterSpacing: 0.5 },
-  inputWrapper: { borderRadius: 14, borderWidth: 1.5 },
-  input: { padding: 18, fontSize: 16 },
   phoneContainer: { flexDirection: 'row', gap: 10 },
   countryCodeWrapper: { borderRadius: 14, borderWidth: 1.5, width: 85 },
   countryCodeInput: { padding: 18, fontSize: 16, textAlign: 'center' },
   phoneInputWrapper: { flex: 1, borderRadius: 14, borderWidth: 1.5 },
+  input: { padding: 18, fontSize: 16 },
   hintText: { fontSize: 11, marginTop: 6, marginLeft: 4, fontWeight: "400" },
   buttonContainer: { width: '100%', gap: 16 },
   primaryButton: { paddingVertical: 18, paddingHorizontal: 40, borderRadius: 16, alignItems: 'center', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.25, shadowRadius: 8, elevation: 6 },
   primaryButtonText: { fontSize: 18, fontWeight: '700', letterSpacing: 1 },
   secondaryButton: { paddingVertical: 18, paddingHorizontal: 40, borderRadius: 16, alignItems: 'center', borderWidth: 2 },
   secondaryButtonText: { fontSize: 18, fontWeight: '700', letterSpacing: 1 },
-  footerText: { fontSize: 14, textAlign: 'center' },
-  link: { fontWeight: "700" },
-  themeToggle: {
-    position: 'absolute',
-    top: 50,
-    right: 24,
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 10,
-  },
-  themeToggleIcon: {
-    fontSize: 24,
-  },
 });
