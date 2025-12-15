@@ -1,8 +1,7 @@
 // app/auth/password_change.tsx
-import CryptoJS from 'crypto-js';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Stack, router, useLocalSearchParams } from "expo-router";
-import { collection, doc, getDocs, query, updateDoc, where } from "firebase/firestore";
+import { collection, doc, getDocs, query, serverTimestamp, setDoc, where } from "firebase/firestore";
 import React, { useEffect, useRef, useState } from "react";
 import {
     Alert,
@@ -21,14 +20,9 @@ import {
 } from "react-native";
 import { Circle, Defs, RadialGradient, Stop, Svg } from 'react-native-svg';
 import { useTheme } from '../../contexts/ThemeContext';
-import { db } from "../../src2/firebase/config";
+import { auth, db } from "../../src2/firebase/config";
 
 const { width, height } = Dimensions.get('window');
-
-// Password hashing function using SHA-256
-const hashPassword = (password: string): string => {
-  return CryptoJS.SHA256(password).toString();
-};
 
 const StarBackground = () => {
   const [stars, setStars] = useState<any[]>([]);
@@ -219,7 +213,6 @@ const AnimatedButton = ({ title, onPress, isPrimary, disabled }: any) => {
 export default function PasswordChangeScreen() {
   const { theme, isDark } = useTheme();
   const params = useLocalSearchParams();
-  const userId = params.userId as string;
   const credential = params.credential as string;
   const method = params.method as string;
 
@@ -229,24 +222,20 @@ export default function PasswordChangeScreen() {
   const [focusedField, setFocusedField] = useState<string | null>(null);
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [foundUserId, setFoundUserId] = useState<string | null>(null);
+  const [userEmail, setUserEmail] = useState<string | null>(null);
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(30)).current;
 
   useEffect(() => {
-    // Check if we have userId OR credential+method
-    if (!userId && (!credential || !method)) {
+    if (!credential || !method) {
       Alert.alert("Error", "Invalid session. Please try again.", [
-        { text: "OK", onPress: () => router.replace("/auth/login-options") }
+        { text: "OK", onPress: () => router.replace("/auth/login") }
       ]);
       return;
     }
 
-    // If credential and method provided (from forgot password), find the user
-    if (credential && method && !userId) {
-      findUserByCredential();
-    }
+    findUserByCredential();
 
     Animated.parallel([
       Animated.timing(fadeAnim, {
@@ -271,16 +260,17 @@ export default function PasswordChangeScreen() {
       
       if (!querySnapshot.empty) {
         const userDoc = querySnapshot.docs[0];
-        setFoundUserId(userDoc.id);
+        const userData = userDoc.data();
+        setUserEmail(userData.email || credential);
       } else {
         Alert.alert("Error", "User not found. Please try again.", [
-          { text: "OK", onPress: () => router.replace("/auth/login-options") }
+          { text: "OK", onPress: () => router.replace("/auth/login") }
         ]);
       }
     } catch (error) {
       console.error("Error finding user:", error);
       Alert.alert("Error", "Failed to verify user. Please try again.", [
-        { text: "OK", onPress: () => router.replace("/auth/login-options") }
+        { text: "OK", onPress: () => router.replace("/auth/login") }
       ]);
     }
   };
@@ -301,7 +291,7 @@ export default function PasswordChangeScreen() {
     return null;
   };
 
-  const handleChangePassword = async () => {
+  const handleSubmitRequest = async () => {
     if (!newPassword.trim() || !confirmPassword.trim()) {
       Alert.alert("Missing Input", "Please fill in all fields");
       return;
@@ -318,31 +308,29 @@ export default function PasswordChangeScreen() {
       return;
     }
 
-    // Determine which user ID to use
-    const targetUserId = userId || foundUserId;
-    
-    if (!targetUserId) {
+    if (!userEmail) {
       Alert.alert("Error", "Unable to identify user. Please try again.");
       return;
     }
 
     setLoading(true);
     try {
-      // Hash the new password
-      const hashedPassword = hashPassword(newPassword);
+      const currentUser = auth.currentUser;
+      const uid = currentUser?.uid || userEmail;
 
-      // Update ONLY Firestore - this is the source of truth for passwords
-      const userDocRef = doc(db, "users", targetUserId);
-      await updateDoc(userDocRef, {
-        password: hashedPassword,
-        passwordUpdatedAt: new Date(),
+      const requestRef = doc(db, "passwordChangeRequests", uid);
+      await setDoc(requestRef, {
+        uid: uid,
+        email: userEmail,
+        status: "pending",
+        requestedAt: serverTimestamp(),
       });
 
-      console.log("Password updated successfully in Firestore for user:", targetUserId);
+      console.log("Password change request submitted for:", userEmail);
 
       Alert.alert(
-        "Password Changed Successfully! 🎉",
-        "Redirecting to login...",
+        "Request Submitted! ✅",
+        "Your password change request has been submitted. Please wait for admin approval. You will be notified once it's processed.",
         [
           {
             text: "OK",
@@ -351,13 +339,12 @@ export default function PasswordChangeScreen() {
         ]
       );
       
-      // Auto redirect after 2 seconds if user doesn't click OK
       setTimeout(() => {
         router.replace("/auth/login");
       }, 2000);
     } catch (error) {
-      console.error("Error changing password:", error);
-      Alert.alert("Error", "Failed to change password. Please try again.");
+      console.error("Error submitting password change request:", error);
+      Alert.alert("Error", "Failed to submit request. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -398,10 +385,10 @@ export default function PasswordChangeScreen() {
           >
             <View style={styles.leftSection}>
               <Text style={[styles.title, { color: theme.primaryText }]}>
-                Reset Password
+                Request Password Change
               </Text>
               <Text style={[styles.subtitle, { color: theme.secondaryText }]}>
-                Create a strong new password for your account
+                Submit a request to change your password. Admin approval required.
               </Text>
             </View>
 
@@ -510,10 +497,16 @@ export default function PasswordChangeScreen() {
                 </Text>
               </View>
 
+              <View style={styles.noticeBox}>
+                <Text style={[styles.noticeText, { color: theme.secondaryText }]}>
+                  ℹ️ Your request will be reviewed by an admin. You'll be notified once approved.
+                </Text>
+              </View>
+
               <AnimatedButton
-                title={loading ? "Changing Password..." : "Reset Password"}
+                title={loading ? "Submitting Request..." : "Submit Request"}
                 isPrimary={true}
-                onPress={handleChangePassword}
+                onPress={handleSubmitRequest}
                 disabled={loading}
               />
             </View>
@@ -544,6 +537,8 @@ const styles = StyleSheet.create({
   passwordRequirements: { marginTop: 8, marginBottom: 8 },
   requirementsTitle: { fontSize: 13, fontWeight: '600', marginBottom: 8 },
   requirementText: { fontSize: 12, marginBottom: 4, marginLeft: 8 },
+  noticeBox: { backgroundColor: 'rgba(255, 255, 255, 0.1)', padding: 16, borderRadius: 12, marginBottom: 8 },
+  noticeText: { fontSize: 13, lineHeight: 20, textAlign: 'center' },
   primaryButton: { paddingVertical: 18, paddingHorizontal: 40, borderRadius: 16, alignItems: 'center', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.25, shadowRadius: 8, elevation: 6 },
   primaryButtonText: { fontSize: 18, fontWeight: '700', letterSpacing: 1 },
   secondaryButton: { paddingVertical: 18, paddingHorizontal: 40, borderRadius: 16, alignItems: 'center', borderWidth: 2 },
