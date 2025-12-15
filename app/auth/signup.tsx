@@ -212,9 +212,11 @@ const AnimatedButton = ({ title, onPress, isPrimary, disabled }: any) => {
 };
 
 export default function SignUpScreen() {
-  const { theme, isDark } = useTheme();
+  const { theme, isDark, toggleTheme } = useTheme();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [name, setName] = useState("");
+  const [username, setUsername] = useState("");
   const [loading, setLoading] = useState(false);
   const [focusedField, setFocusedField] = useState<string | null>(null);
 
@@ -252,6 +254,16 @@ export default function SignUpScreen() {
   };
 
   const signup = async () => {
+    if (!name.trim()) {
+      Alert.alert("Missing Name", "Please enter your name");
+      return;
+    }
+
+    if (!username.trim()) {
+      Alert.alert("Missing Username", "Please enter a username");
+      return;
+    }
+
     if (!email.trim()) {
       Alert.alert("Missing Email", "Please enter your email address");
       return;
@@ -279,11 +291,22 @@ export default function SignUpScreen() {
       const uid = userCred.user.uid;
 
       await setDoc(doc(db, "users", uid), {
+        name: name.trim(),
+        username: username.trim().toLowerCase(),
         email: email.trim(),
         createdAt: new Date().toISOString(),
       });
 
-      router.replace("/(tabs)/dashboard");
+      Alert.alert(
+        "Successfully Signed Up! 🎉",
+        "Your account has been created. Please log in to continue.",
+        [
+          { 
+            text: "Go to Login", 
+            onPress: () => router.replace("/auth/login")
+          }
+        ]
+      );
     } catch (err: any) {
       console.log("Signup error:", err.code, err.message);
       
@@ -329,6 +352,14 @@ export default function SignUpScreen() {
       
       {isDark ? <StarBackground /> : <FloatingFlowers />}
 
+      {/* Theme Toggle Button */}
+      <TouchableOpacity 
+        style={styles.themeToggle}
+        onPress={toggleTheme}
+      >
+        <Text style={styles.themeToggleIcon}>{isDark ? '☀️' : '🌙'}</Text>
+      </TouchableOpacity>
+
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         style={styles.keyboardView}
@@ -372,6 +403,56 @@ export default function SignUpScreen() {
             </View>
 
             <View style={styles.form}>
+              <View style={styles.inputContainer}>
+                <Text style={[styles.label, { color: theme.secondaryText }]}>Name</Text>
+                <Animated.View
+                  style={[
+                    styles.inputWrapper,
+                    {
+                      backgroundColor: theme.inputBackground,
+                      borderColor: focusedField === 'name' ? theme.inputBorderFocused : theme.inputBorder,
+                    },
+                  ]}
+                >
+                  <TextInput
+                    placeholder="Your full name"
+                    placeholderTextColor={theme.inputPlaceholder}
+                    autoCapitalize="words"
+                    value={name}
+                    onChangeText={setName}
+                    onFocus={() => setFocusedField('name')}
+                    onBlur={() => setFocusedField(null)}
+                    style={[styles.input, { color: theme.primaryText }]}
+                    editable={!loading}
+                  />
+                </Animated.View>
+              </View>
+
+              <View style={styles.inputContainer}>
+                <Text style={[styles.label, { color: theme.secondaryText }]}>Username</Text>
+                <Animated.View
+                  style={[
+                    styles.inputWrapper,
+                    {
+                      backgroundColor: theme.inputBackground,
+                      borderColor: focusedField === 'username' ? theme.inputBorderFocused : theme.inputBorder,
+                    },
+                  ]}
+                >
+                  <TextInput
+                    placeholder="Choose a username"
+                    placeholderTextColor={theme.inputPlaceholder}
+                    autoCapitalize="none"
+                    value={username}
+                    onChangeText={setUsername}
+                    onFocus={() => setFocusedField('username')}
+                    onBlur={() => setFocusedField(null)}
+                    style={[styles.input, { color: theme.primaryText }]}
+                    editable={!loading}
+                  />
+                </Animated.View>
+              </View>
+
               <View style={styles.inputContainer}>
                 <Text style={[styles.label, { color: theme.secondaryText }]}>Email</Text>
                 <Animated.View
@@ -476,4 +557,19 @@ const styles = StyleSheet.create({
   secondaryButtonText: { fontSize: 18, fontWeight: '700', letterSpacing: 1 },
   footerText: { fontSize: 14, textAlign: 'center' },
   link: { fontWeight: "700" },
+  themeToggle: {
+    position: 'absolute',
+    top: 50,
+    right: 24,
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10,
+  },
+  themeToggleIcon: {
+    fontSize: 24,
+  },
 });

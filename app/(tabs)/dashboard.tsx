@@ -1,5 +1,6 @@
 // app/(tabs)/dashboard.tsx
 import { LinearGradient } from 'expo-linear-gradient';
+import { router } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import {
     Animated,
@@ -10,13 +11,15 @@ import {
     Text,
     TouchableOpacity,
     View,
+    ActivityIndicator,
 } from 'react-native';
 import { Circle, Defs, Path, RadialGradient, Stop, Svg, LinearGradient as SvgLinearGradient } from 'react-native-svg';
 import { useTheme } from '../../contexts/ThemeContext';
+import { auth, db } from "../../src2/firebase/config";
+import { doc, getDoc } from "firebase/firestore";
 
 const { width, height } = Dimensions.get('window');
 
-const user = { name: "Aaru", monthlyBudget: 8000 };
 const expenses = [
   { id: "1", title: "Swiggy", amount: 320, category: "Food", date: "2025-04-12" },
   { id: "2", title: "Uber", amount: 180, category: "Travel", date: "2025-04-11" },
@@ -258,11 +261,107 @@ const AnimatedButton = ({ icon, text, colors, onPress }: any) => {
   );
 };
 
+// ============== BOTTOM TAB BAR ==============
+const BottomTabBar = ({ activeTab }: { activeTab: string }) => {
+  const { theme } = useTheme();
+  const scaleAnims = {
+    dashboard: useRef(new Animated.Value(1)).current,
+    analytics: useRef(new Animated.Value(1)).current,
+    settings: useRef(new Animated.Value(1)).current,
+    profile: useRef(new Animated.Value(1)).current,
+  };
+
+  const tabs = [
+    { id: 'dashboard', label: 'Home', icon: '🏠', route: '/(tabs)/dashboard' },
+    { id: 'analytics', label: 'Analytics', icon: '📈', route: '/(tabs)/analytics' },
+    { id: 'settings', label: 'Settings', icon: '⚙️', route: '/(tabs)/settings' },
+    { id: 'profile', label: 'Profile', icon: '👤', route: '/(tabs)/profile' },
+  ];
+
+  const handlePressIn = (tabId: string) => {
+    Animated.spring(scaleAnims[tabId as keyof typeof scaleAnims], {
+      toValue: 0.85,
+      useNativeDriver: true,
+      friction: 4,
+    }).start();
+  };
+
+  const handlePressOut = (tabId: string) => {
+    Animated.spring(scaleAnims[tabId as keyof typeof scaleAnims], {
+      toValue: 1,
+      useNativeDriver: true,
+      friction: 4,
+    }).start();
+  };
+
+  return (
+    <View style={[styles.tabBar, { backgroundColor: theme.cardBackground, borderTopColor: theme.cardBorder }]}>
+      {tabs.map((tab) => {
+        const isActive = activeTab === tab.id;
+        return (
+          <TouchableOpacity
+            key={tab.id}
+            activeOpacity={1}
+            onPressIn={() => handlePressIn(tab.id)}
+            onPressOut={() => handlePressOut(tab.id)}
+            onPress={() => router.push(tab.route as any)}
+            style={styles.tabButton}
+          >
+            <Animated.View
+              style={[
+                styles.tabContent,
+                { transform: [{ scale: scaleAnims[tab.id as keyof typeof scaleAnims] }] },
+              ]}
+            >
+              {isActive && (
+                <View style={[styles.activeIndicator, { backgroundColor: theme.accent[0] }]} />
+              )}
+              <Text style={[styles.tabIcon, { fontSize: 24 }]}>{tab.icon}</Text>
+              <Text
+                style={[
+                  styles.tabLabel,
+                  { color: isActive ? theme.accent[0] : theme.secondaryText },
+                ]}
+              >
+                {tab.label}
+              </Text>
+            </Animated.View>
+          </TouchableOpacity>
+        );
+      })}
+    </View>
+  );
+};
+
 // ============== MAIN DASHBOARD ==============
 export default function Dashboard() {
   const { theme, isDark } = useTheme();
+  const [userData, setUserData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchUserData = async () => {
+      try {
+        const currentUser = auth.currentUser;
+        if (currentUser) {
+          const userDoc = await getDoc(doc(db, "users", currentUser.uid));
+          if (userDoc.exists()) {
+            setUserData(userDoc.data());
+          }
+        }
+      } catch (error) {
+        console.error("Error fetching user data:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchUserData();
+  }, []);
+
   const totalSpent = expenses.reduce((sum, exp) => sum + exp.amount, 0);
-  const remaining = user.monthlyBudget - totalSpent;
+  const monthlyBudget = userData?.monthlyBudget || 0;
+  const remaining = monthlyBudget - totalSpent;
   const isOverBudget = remaining < 0;
 
   const categories = [
@@ -275,6 +374,32 @@ export default function Dashboard() {
     ...cat,
     amount: expenses.filter(exp => exp.category === cat.name).reduce((sum, exp) => sum + exp.amount, 0),
   }));
+
+  const getGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour < 12) return "Good Morning";
+    if (hour < 18) return "Good Afternoon";
+    return "Good Evening";
+  };
+
+  if (loading) {
+    return (
+      <View style={styles.container}>
+        <LinearGradient
+          colors={theme.background}
+          style={StyleSheet.absoluteFill}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          locations={theme.backgroundLocations}
+        />
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={theme.accent[0]} />
+        </View>
+      </View>
+    );
+  }
+
+  console.log("User Data:", userData); // Debug log to check if data is loading
 
   return (
     <View style={styles.container}>
@@ -293,8 +418,12 @@ export default function Dashboard() {
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
         <View style={styles.header}>
           <View>
-            <Text style={[styles.greeting, { color: theme.secondaryText }]}>Good Evening</Text>
-            <Text style={[styles.userName, { color: theme.primaryText }]}>{user.name}</Text>
+            <Text style={[styles.greeting, { color: theme.secondaryText }]}>{getGreeting()}</Text>
+            {userData?.name ? (
+              <Text style={[styles.userName, { color: theme.primaryText }]}>{userData.name}</Text>
+            ) : (
+              <Text style={[styles.userName, { color: theme.primaryText }]}>Welcome</Text>
+            )}
           </View>
           <LinearGradient
             colors={[theme.cardBorder, theme.cardBackground]}
@@ -307,12 +436,12 @@ export default function Dashboard() {
         </View>
 
         <AnimatedCard style={styles.summaryCard}>
-          <CircularProgress spent={totalSpent} budget={user.monthlyBudget} />
+          <CircularProgress spent={totalSpent} budget={monthlyBudget} />
           
           <View style={styles.budgetInfo}>
             <View style={styles.budgetRow}>
               <Text style={[styles.budgetLabel, { color: theme.secondaryText }]}>Budget</Text>
-              <Text style={[styles.budgetValue, { color: theme.primaryText }]}>₹{user.monthlyBudget}</Text>
+              <Text style={[styles.budgetValue, { color: theme.primaryText }]}>₹{monthlyBudget}</Text>
             </View>
             <View style={styles.budgetRow}>
               <Text style={[styles.budgetLabel, { color: isOverBudget ? '#D4756F' : '#A5C9A5' }]}>
@@ -387,14 +516,39 @@ export default function Dashboard() {
 
         <View style={{ height: 40 }} />
       </ScrollView>
+
+      <BottomTabBar activeTab="dashboard" />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  tabBar: { 
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    paddingBottom: 20,
+    paddingTop: 12,
+    paddingHorizontal: 8,
+    borderTopWidth: 1,
+  },
+  tabButton: { flex: 1, alignItems: 'center' },
+  tabContent: { alignItems: 'center', justifyContent: 'center', position: 'relative' },
+  activeIndicator: { 
+    position: 'absolute',
+    top: -8,
+    width: 32,
+    height: 3,
+    borderRadius: 2,
+  },
+  tabIcon: { marginBottom: 4 },
+  tabLabel: { fontSize: 11, fontWeight: '600', letterSpacing: 0.2 },
   scrollView: { flex: 1 },
-  scrollContent: { padding: 20 },
+  scrollContent: { padding: 20, paddingBottom: 100 },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 30, marginTop: 20 },
   greeting: { fontSize: 12, marginBottom: 6, letterSpacing: 1.2, textTransform: 'uppercase', fontWeight: '400' },
   userName: { fontSize: 38, fontWeight: '200', letterSpacing: 0.8 },
