@@ -20,7 +20,7 @@ import {
 } from "react-native";
 import { Circle, Defs, RadialGradient, Stop, Svg } from 'react-native-svg';
 import { useTheme } from '../../contexts/ThemeContext';
-import { auth, db } from "../../src2/firebase/config";
+import { db } from "../../src2/firebase/config";
 
 const { width, height } = Dimensions.get('window');
 
@@ -222,7 +222,7 @@ export default function PasswordChangeScreen() {
   const [focusedField, setFocusedField] = useState<string | null>(null);
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [userUid, setUserUid] = useState<string | null>(null);
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(30)).current;
@@ -260,8 +260,7 @@ export default function PasswordChangeScreen() {
       
       if (!querySnapshot.empty) {
         const userDoc = querySnapshot.docs[0];
-        const userData = userDoc.data();
-        setUserEmail(userData.email || credential);
+        setUserUid(userDoc.id);
       } else {
         Alert.alert("Error", "User not found. Please try again.", [
           { text: "OK", onPress: () => router.replace("/auth/login") }
@@ -308,25 +307,21 @@ export default function PasswordChangeScreen() {
       return;
     }
 
-    if (!userEmail) {
+    if (!userUid) {
       Alert.alert("Error", "Unable to identify user. Please try again.");
       return;
     }
 
     setLoading(true);
     try {
-      const currentUser = auth.currentUser;
-      const uid = currentUser?.uid || userEmail;
-
-      const requestRef = doc(db, "passwordChangeRequests", uid);
+      const requestRef = doc(db, "passwordChangeRequests", userUid);
       await setDoc(requestRef, {
-        uid: uid,
-        email: userEmail,
+        uid: userUid,
         status: "pending",
         requestedAt: serverTimestamp(),
       });
 
-      console.log("Password change request submitted for:", userEmail);
+      console.log("Password change request submitted for uid:", userUid);
 
       Alert.alert(
         "Request Submitted! ✅",
