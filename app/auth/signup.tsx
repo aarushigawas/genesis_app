@@ -216,7 +216,7 @@ export default function SignUpScreen() {
   const [name, setName] = useState("");
   const [username, setUsername] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
-  const [countryCode, setCountryCode] = useState("+91"); // Default to India
+  const [countryCode, setCountryCode] = useState("+91");
   const [loading, setLoading] = useState(false);
   const [focusedField, setFocusedField] = useState<string | null>(null);
 
@@ -254,7 +254,6 @@ export default function SignUpScreen() {
   };
 
   const validatePhoneNumber = (phone: string) => {
-    // Basic phone validation - at least 7 digits
     const phoneRegex = /^\d{7,15}$/;
     return phoneRegex.test(phone);
   };
@@ -335,7 +334,6 @@ export default function SignUpScreen() {
       
       {isDark ? <StarBackground /> : <FloatingFlowers />}
 
-      {/* Theme Toggle Button */}
       <TouchableOpacity 
         style={styles.themeToggle}
         onPress={toggleTheme}

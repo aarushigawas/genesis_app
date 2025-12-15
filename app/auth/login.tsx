@@ -1,9 +1,7 @@
 // app/auth/login.tsx
-import CryptoJS from 'crypto-js';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Stack, router } from "expo-router";
 import { signInWithEmailAndPassword } from "firebase/auth";
-import { collection, getDocs, query, where } from "firebase/firestore";
 import React, { useEffect, useRef, useState } from "react";
 import {
   Alert,
@@ -22,14 +20,9 @@ import {
 } from "react-native";
 import { Circle, Defs, RadialGradient, Stop, Svg } from 'react-native-svg';
 import { useTheme } from '../../contexts/ThemeContext';
-import { auth, db } from "../../src2/firebase/config";
+import { auth } from "../../src2/firebase/config";
 
 const { width, height } = Dimensions.get('window');
-
-// Password hashing function using SHA-256 (must match password_change.tsx)
-const hashPassword = (password: string): string => {
-  return CryptoJS.SHA256(password).toString();
-};
 
 const StarBackground = () => {
   const [stars, setStars] = useState<any[]>([]);
@@ -219,7 +212,7 @@ const AnimatedButton = ({ title, onPress, isPrimary, disabled }: any) => {
 
 export default function LoginScreen() {
   const { theme, isDark } = useTheme();
-  const [emailOrPhone, setEmailOrPhone] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [focusedField, setFocusedField] = useState<string | null>(null);
@@ -248,23 +241,14 @@ export default function LoginScreen() {
     return emailRegex.test(email);
   };
 
-  const validatePhoneNumber = (phone: string) => {
-    // Indian phone number format: 10 digits
-    const phoneRegex = /^[6-9]\d{9}$/;
-    return phoneRegex.test(phone);
-  };
-
   const login = async () => {
-    if (!emailOrPhone.trim()) {
-      Alert.alert("Missing Credential", "Please enter your email or phone number");
+    if (!email.trim()) {
+      Alert.alert("Missing Email", "Please enter your email address");
       return;
     }
 
-    const isEmail = validateEmail(emailOrPhone.trim());
-    const isPhone = validatePhoneNumber(emailOrPhone.trim());
-
-    if (!isEmail && !isPhone) {
-      Alert.alert("Invalid Input", "Please enter a valid email address or 10-digit phone number");
+    if (!validateEmail(email.trim())) {
+      Alert.alert("Invalid Email", "Please enter a valid email address");
       return;
     }
 
@@ -280,68 +264,43 @@ export default function LoginScreen() {
 
     setLoading(true);
     try {
-      // Hash the entered password
-      const hashedPassword = hashPassword(password);
-
-      // Query Firestore to find user by email or phone
-      const usersRef = collection(db, "users");
-      let userQuery;
-
-      if (isEmail) {
-        userQuery = query(usersRef, where("email", "==", emailOrPhone.trim()));
-      } else {
-        userQuery = query(usersRef, where("phoneNumber", "==", emailOrPhone.trim()));
-      }
-
-      const querySnapshot = await getDocs(userQuery);
-
-      if (querySnapshot.empty) {
+      await signInWithEmailAndPassword(auth, email.trim(), password);
+      console.log("Login successful");
+      router.replace("/(tabs)/dashboard");
+    } catch (err: any) {
+      console.error("Login error:", err.code, err.message);
+      
+      const errorCode = err.code;
+      
+      if (errorCode === "auth/user-not-found") {
         Alert.alert(
           "Account Not Found",
-          "No account exists with this credential. Would you like to sign up?",
+          "No account exists with this email. Would you like to sign up?",
           [
             { text: "Cancel", style: "cancel" },
             { text: "Sign Up", onPress: () => router.push("/auth/signup") }
           ]
         );
-        return;
-      }
-
-      // Get the user document
-      const userDoc = querySnapshot.docs[0];
-      const userData = userDoc.data();
-
-      // Compare hashed passwords - THIS IS THE ONLY PASSWORD CHECK (FIRESTORE ONLY)
-      if (userData.password !== hashedPassword) {
+      } else if (errorCode === "auth/wrong-password" || errorCode === "auth/invalid-credential") {
         Alert.alert("Incorrect Password", "The password you entered is incorrect. Please try again.");
-        return;
+      } else if (errorCode === "auth/invalid-email") {
+        Alert.alert("Invalid Email", "Please enter a valid email address");
+      } else if (errorCode === "auth/user-disabled") {
+        Alert.alert("Account Disabled", "This account has been disabled. Please contact support.");
+      } else if (errorCode === "auth/too-many-requests") {
+        Alert.alert("Too Many Attempts", "Too many failed login attempts. Please try again later or reset your password.");
+      } else if (errorCode === "auth/network-request-failed") {
+        Alert.alert("Network Error", "Please check your internet connection and try again.");
+      } else {
+        Alert.alert(
+          "Login Failed",
+          "An error occurred during login. Please try again.",
+          [
+            { text: "OK", style: "cancel" },
+            { text: "Sign Up", onPress: () => router.push("/auth/signup") }
+          ]
+        );
       }
-
-      // Password matches in Firestore - now sign in with Firebase Auth
-      // We still use Firebase Auth for session management, but NOT for password validation
-      const loginCredential = isEmail ? emailOrPhone.trim() : `${emailOrPhone.trim()}@phone.app`;
-      
-      try {
-        await signInWithEmailAndPassword(auth, loginCredential, password);
-        console.log("Login successful for user:", userDoc.id);
-        router.replace("/(tabs)/dashboard");
-      } catch (authError: any) {
-        // If Firebase Auth fails but Firestore password matches, still allow login
-        // This ensures Firestore is the source of truth
-        console.log("Firebase Auth error (ignoring):", authError.code);
-        console.log("Allowing login based on Firestore password match");
-        router.replace("/(tabs)/dashboard");
-      }
-    } catch (err: any) {
-      console.error("Login error:", err);
-      Alert.alert(
-        "Login Failed",
-        "An error occurred during login. Please try again.",
-        [
-          { text: "OK", style: "cancel" },
-          { text: "Sign Up", onPress: () => router.push("/auth/signup") }
-        ]
-      );
     } finally {
       setLoading(false);
     }
@@ -406,24 +365,24 @@ export default function LoginScreen() {
 
             <View style={styles.form}>
               <View style={styles.inputContainer}>
-                <Text style={[styles.label, { color: theme.secondaryText }]}>Email or Phone Number</Text>
+                <Text style={[styles.label, { color: theme.secondaryText }]}>Email Address</Text>
                 <Animated.View
                   style={[
                     styles.inputWrapper,
                     {
                       backgroundColor: theme.inputBackground,
-                      borderColor: focusedField === 'emailOrPhone' ? theme.inputBorderFocused : theme.inputBorder,
+                      borderColor: focusedField === 'email' ? theme.inputBorderFocused : theme.inputBorder,
                     },
                   ]}
                 >
                   <TextInput
-                    placeholder="9876543210"
+                    placeholder="your@email.com"
                     placeholderTextColor={theme.inputPlaceholder}
                     autoCapitalize="none"
-                    keyboardType="default"
-                    value={emailOrPhone}
-                    onChangeText={setEmailOrPhone}
-                    onFocus={() => setFocusedField('emailOrPhone')}
+                    keyboardType="email-address"
+                    value={email}
+                    onChangeText={setEmail}
+                    onFocus={() => setFocusedField('email')}
                     onBlur={() => setFocusedField(null)}
                     style={[styles.input, { color: theme.primaryText }]}
                     editable={!loading}
