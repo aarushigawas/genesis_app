@@ -4,15 +4,15 @@ import { router } from 'expo-router';
 import { signOut } from "firebase/auth";
 import React, { useEffect, useRef, useState } from 'react';
 import {
-    Alert,
-    Animated,
-    Dimensions,
-    ScrollView,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  Alert,
+  Animated,
+  Dimensions,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { Circle, Defs, RadialGradient, Stop, Svg } from 'react-native-svg';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -268,17 +268,18 @@ export default function Profile() {
           text: "Log Out",
           style: "destructive",
           onPress: async () => {
-            setLoading(true);
-            try {
-              await signOut(auth);
-              router.replace("/auth/login");
-            } catch (error: any) {
-              console.error("Logout error:", error);
-              Alert.alert("Error", "Failed to log out. Please try again.");
-            } finally {
-              setLoading(false);
-            }
-          }
+  setLoading(true);
+  try {
+    await signOut(auth);
+    router.replace("/(tabs)");
+  } catch (error: any) {
+    console.error("Logout error:", error);
+    Alert.alert("Error", "Failed to log out. Please try again.");
+  } finally {
+    setLoading(false);
+  }
+}
+
         }
       ]
     );

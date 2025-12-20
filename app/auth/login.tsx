@@ -266,7 +266,7 @@ export default function LoginScreen() {
     try {
       await signInWithEmailAndPassword(auth, email.trim(), password);
 console.log("Login successful");
-router.replace("/(onboarding)/income"); // ADD THIS LINE
+router.replace("/(tabs)/dashboard"); // ADD THIS LINE //before it was onboarding
     } catch (err: any) {
       console.error("Login error:", err.code, err.message);
       
