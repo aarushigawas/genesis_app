@@ -1,31 +1,31 @@
 // app/(tabs)/dashboard.tsx
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
+import { doc, getDoc } from "firebase/firestore";
 import React, { useEffect, useRef, useState } from 'react';
 import {
-    Animated,
-    Dimensions,
-    ScrollView,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
-    ActivityIndicator,
+  ActivityIndicator,
+  Animated,
+  Dimensions,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { Circle, Defs, Path, RadialGradient, Stop, Svg, LinearGradient as SvgLinearGradient } from 'react-native-svg';
 import { useTheme } from '../../contexts/ThemeContext';
 import { auth, db } from "../../src2/firebase/config";
-import { doc, getDoc } from "firebase/firestore";
 
 const { width, height } = Dimensions.get('window');
 
 const expenses = [
   { id: "1", title: "Swiggy", amount: 320, category: "Food", date: "2025-04-12" },
-  { id: "2", title: "Uber", amount: 180, category: "Travel", date: "2025-04-11" },
-  { id: "3", title: "Electricity Bill", amount: 950, category: "Bills", date: "2025-04-10" },
+  { id: "2", title: "Uber", amount: 180, category: "Transport", date: "2025-04-11" },
+  { id: "3", title: "Electricity Bill", amount: 950, category: "Utilities", date: "2025-04-10" },
   { id: "4", title: "Zomato", amount: 410, category: "Food", date: "2025-04-09" },
-  { id: "5", title: "Netflix", amount: 499, category: "Bills", date: "2025-04-08" },
+  { id: "5", title: "Netflix", amount: 499, category: "Subscriptions", date: "2025-04-08" },
 ];
 
 // ============== STAR BACKGROUND ==============
@@ -364,16 +364,58 @@ export default function Dashboard() {
   const remaining = monthlyBudget - totalSpent;
   const isOverBudget = remaining < 0;
 
-  const categories = [
-    { name: "Food", color: isDark ? "#E8B4F8" : "#D4A5A5" },
-    { name: "Travel", color: isDark ? "#B4A4F8" : "#C49A9A" },
-    { name: "Bills", color: isDark ? "#D4B4F8" : "#B48A8A" },
-  ];
+  // Get user's selected categories from Firestore
+  const userCategories = userData?.categories || [];
 
-  const categoryData = categories.map(cat => ({
-    ...cat,
-    amount: expenses.filter(exp => exp.category === cat.name).reduce((sum, exp) => sum + exp.amount, 0),
-  }));
+  // Category icons mapping
+  const categoryIcons: { [key: string]: string } = {
+    Food: '🍔',
+    Transport: '🚗',
+    Rent: '🏠',
+    Subscriptions: '📺',
+    Groceries: '🛒',
+    Family: '👨‍👩‍👧‍👦',
+    Utilities: '💡',
+    Fashion: '👗',
+    Healthcare: '⚕️',
+    Pets: '🐾',
+    Sneakers: '👟',
+    Gifts: '🎁',
+  };
+
+  // Filter categories based on user's onboarding selection
+  const filteredCategories = userCategories.length > 0
+    ? userCategories.map((catName: string) => ({
+        name: catName,
+        color: isDark ? "#B4A4F8" : "#D4A5A5",
+      }))
+    : [
+        { name: "Food", color: isDark ? "#E8B4F8" : "#D4A5A5" },
+        { name: "Transport", color: isDark ? "#B4A4F8" : "#C49A9A" },
+        { name: "Utilities", color: isDark ? "#D4B4F8" : "#B48A8A" },
+      ];
+
+  interface Category {
+    name: string;
+    color: string;
+    amount?: number;
+    percentage?: number;
+  }
+
+  // Calculate spending per category
+  const categoryData = (filteredCategories || []).map((cat: Category) => {
+    const amount = expenses
+      .filter(exp => exp.category === cat.name)
+      .reduce((sum, exp) => sum + exp.amount, 0);
+    
+    return {
+      ...cat,
+      amount,
+      percentage: totalSpent > 0 ? (amount / totalSpent) * 100 : 0
+    };
+  }).filter((cat: Category): cat is Category & { amount: number } => {
+    return (cat.amount ?? 0) > 0;
+  }); // Only show categories with expenses
 
   const getGreeting = () => {
     const hour = new Date().getHours();
@@ -398,8 +440,6 @@ export default function Dashboard() {
       </View>
     );
   }
-
-  console.log("User Data:", userData); // Debug log to check if data is loading
 
   return (
     <View style={styles.container}>
@@ -457,8 +497,8 @@ export default function Dashboard() {
         <View style={styles.section}>
           <Text style={[styles.sectionTitle, { color: theme.primaryText }]}>Categories</Text>
           
-          {categoryData.map((cat, index) => {
-            const percentage = totalSpent > 0 ? ((cat.amount / totalSpent) * 100).toFixed(0) : 0;
+          {categoryData.map((cat: Category, index: number) => {
+            const percentage = totalSpent > 0 ? ((cat.amount || 0) / totalSpent * 100).toFixed(0) : '0';
             return (
               <AnimatedCard key={index} style={styles.categoryCard}>
                 <View style={styles.categoryRow}>
@@ -484,8 +524,7 @@ export default function Dashboard() {
           
           <AnimatedCard>
             {expenses.slice(0, 5).map((expense, idx) => {
-              const category = categories.find(cat => cat.name === expense.category);
-              const icon = expense.category === 'Food' ? '🍔' : expense.category === 'Travel' ? '🚗' : '💡';
+              const icon = categoryIcons[expense.category] || '💰';
 
               return (
                 <View
@@ -496,7 +535,7 @@ export default function Dashboard() {
                   ]}
                 >
                   <LinearGradient
-                    colors={[category!.color + '35', category!.color + '18']}
+                    colors={[theme.accent[0] + '35', theme.accent[0] + '18']}
                     style={styles.transactionIcon}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 1 }}
