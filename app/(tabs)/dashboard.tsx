@@ -340,34 +340,44 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetchUserData = async () => {
-      try {
-        const currentUser = auth.currentUser;
-        if (currentUser) {
-          const userDoc = await getDoc(doc(db, "users", currentUser.uid));
-          if (userDoc.exists()) {
-            setUserData(userDoc.data());
-          }
-        }
-      } catch (error) {
-        console.error("Error fetching user data:", error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
     fetchUserData();
   }, []);
+
+  const fetchUserData = async () => {
+    try {
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        setLoading(false);
+        return;
+      }
+
+      // Fetch both collections in parallel
+      const [userDocSnap, onboardingDocSnap] = await Promise.all([
+        getDoc(doc(db, "users", currentUser.uid)),
+        getDoc(doc(db, "userOnboardingData", currentUser.uid))
+      ]);
+
+      // Merge data with userOnboardingData taking priority
+      const mergedData = {
+        ...(userDocSnap.exists() ? userDocSnap.data() : {}),
+        ...(onboardingDocSnap.exists() ? onboardingDocSnap.data() : {})
+      };
+
+      setUserData(mergedData);
+    } catch (error) {
+      console.error("Error fetching user data:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const totalSpent = expenses.reduce((sum, exp) => sum + exp.amount, 0);
   const monthlyBudget = userData?.monthlyBudget || 0;
   const remaining = monthlyBudget - totalSpent;
   const isOverBudget = remaining < 0;
 
-  // Get user's selected categories from Firestore
   const userCategories = userData?.categories || [];
 
-  // Category icons mapping
   const categoryIcons: { [key: string]: string } = {
     Food: '🍔',
     Transport: '🚗',
@@ -383,7 +393,6 @@ export default function Dashboard() {
     Gifts: '🎁',
   };
 
-  // Filter categories based on user's onboarding selection
   const filteredCategories = userCategories.length > 0
     ? userCategories.map((catName: string) => ({
         name: catName,
@@ -402,7 +411,6 @@ export default function Dashboard() {
     percentage?: number;
   }
 
-  // Calculate spending per category
   const categoryData = (filteredCategories || []).map((cat: Category) => {
     const amount = expenses
       .filter(exp => exp.category === cat.name)
@@ -415,7 +423,7 @@ export default function Dashboard() {
     };
   }).filter((cat: Category): cat is Category & { amount: number } => {
     return (cat.amount ?? 0) > 0;
-  }); // Only show categories with expenses
+  });
 
   const getGreeting = () => {
     const hour = new Date().getHours();
@@ -497,21 +505,29 @@ export default function Dashboard() {
         <View style={styles.section}>
           <Text style={[styles.sectionTitle, { color: theme.primaryText }]}>Categories</Text>
           
-          {categoryData.map((cat: Category, index: number) => {
-            const percentage = totalSpent > 0 ? ((cat.amount || 0) / totalSpent * 100).toFixed(0) : '0';
-            return (
-              <AnimatedCard key={index} style={styles.categoryCard}>
-                <View style={styles.categoryRow}>
-                  <LinearGradient colors={[cat.color, cat.color + 'AA']} style={styles.categoryDot} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} />
-                  <Text style={[styles.categoryName, { color: theme.primaryText }]}>{cat.name}</Text>
-                </View>
-                <View style={styles.categoryAmount}>
-                  <Text style={[styles.categoryValue, { color: theme.primaryText }]}>₹{cat.amount}</Text>
-                  <Text style={[styles.categoryPercent, { color: theme.secondaryText }]}>{percentage}%</Text>
-                </View>
-              </AnimatedCard>
-            );
-          })}
+          {categoryData.length > 0 ? (
+            categoryData.map((cat: Category, index: number) => {
+              const percentage = totalSpent > 0 ? ((cat.amount || 0) / totalSpent * 100).toFixed(0) : '0';
+              return (
+                <AnimatedCard key={index} style={styles.categoryCard}>
+                  <View style={styles.categoryRow}>
+                    <LinearGradient colors={[cat.color, cat.color + 'AA']} style={styles.categoryDot} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} />
+                    <Text style={[styles.categoryName, { color: theme.primaryText }]}>{cat.name}</Text>
+                  </View>
+                  <View style={styles.categoryAmount}>
+                    <Text style={[styles.categoryValue, { color: theme.primaryText }]}>₹{cat.amount}</Text>
+                    <Text style={[styles.categoryPercent, { color: theme.secondaryText }]}>{percentage}%</Text>
+                  </View>
+                </AnimatedCard>
+              );
+            })
+          ) : (
+            <AnimatedCard style={styles.categoryCard}>
+              <Text style={[styles.categoryName, { color: theme.secondaryText }]}>
+                No expenses yet in your selected categories
+              </Text>
+            </AnimatedCard>
+          )}
         </View>
 
         <View style={styles.actionsRow}>

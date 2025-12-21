@@ -1,13 +1,41 @@
 // app/(onboarding)/_layout.tsx
 import { useTheme } from '@/contexts/ThemeContext';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Stack } from 'expo-router';
+import { Stack, usePathname } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useEffect, useRef } from 'react';
-import { Animated, Easing, StyleSheet } from 'react-native';
+import { Animated, Easing, StyleSheet, View } from 'react-native';
+import Svg, { Circle } from 'react-native-svg';
+
+const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
 export default function OnboardingLayout() {
   const { theme, isDark } = useTheme();
+  const pathname = usePathname();
+  
+  // Calculate progress based on current screen
+  const getProgress = () => {
+    if (pathname.includes('/income')) return 0;
+    if (pathname.includes('/budget')) return 20;
+    if (pathname.includes('/categories')) return 40;
+    if (pathname.includes('/saving-purpose')) return 60;
+    if (pathname.includes('/saving-duration')) return 80;
+    if (pathname.includes('/notifications')) return 90;
+    if (pathname.includes('/finish')) return 100;
+    return 0;
+  };
+
+  const progress = getProgress();
+  const progressAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.timing(progressAnim, {
+      toValue: progress,
+      duration: 500,
+      easing: Easing.bezier(0.4, 0.0, 0.2, 1),
+      useNativeDriver: true,
+    }).start();
+  }, [progress]);
 
   return (
     <>
@@ -18,6 +46,10 @@ export default function OnboardingLayout() {
         style={StyleSheet.absoluteFillObject}
       />
       {isDark ? <StarBackground /> : <FlowerBackground />}
+      
+      {/* Circular Progress Indicator */}
+      <CircularProgress progress={progress} isDark={isDark} progressAnim={progressAnim} />
+      
       <Stack
         screenOptions={{
           headerShown: false,
@@ -25,6 +57,50 @@ export default function OnboardingLayout() {
         }}
       />
     </>
+  );
+}
+
+// Circular Progress Component
+function CircularProgress({ progress, isDark, progressAnim }: { progress: number; isDark: boolean; progressAnim: Animated.Value }) {
+  const size = 60;
+  const strokeWidth = 4;
+  const center = size / 2;
+  const radius = (size - strokeWidth) / 2;
+  const circumference = 2 * Math.PI * radius;
+
+  const strokeDashoffset = progressAnim.interpolate({
+    inputRange: [0, 100],
+    outputRange: [circumference, 0],
+  });
+
+  return (
+    <View style={styles.progressContainer}>
+      <Svg width={size} height={size}>
+        {/* Background circle */}
+        <Circle
+          cx={center}
+          cy={center}
+          r={radius}
+          stroke={isDark ? 'rgba(184, 164, 248, 0.2)' : 'rgba(212, 165, 165, 0.2)'}
+          strokeWidth={strokeWidth}
+          fill="none"
+        />
+        {/* Progress circle */}
+        <AnimatedCircle
+          cx={center}
+          cy={center}
+          r={radius}
+          stroke={isDark ? '#B4A4F8' : '#D4A5A5'}
+          strokeWidth={strokeWidth}
+          fill="none"
+          strokeDasharray={circumference}
+          strokeDashoffset={strokeDashoffset}
+          strokeLinecap="round"
+          rotation="-90"
+          origin={`${center}, ${center}`}
+        />
+      </Svg>
+    </View>
   );
 }
 
@@ -163,6 +239,12 @@ function FlowerBackground() {
 }
 
 const styles = StyleSheet.create({
+  progressContainer: {
+    position: 'absolute',
+    top: 50,
+    right: 24,
+    zIndex: 100,
+  },
   star: {
     position: 'absolute',
     width: 4,

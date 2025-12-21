@@ -2,6 +2,7 @@
 import { LinearGradient } from 'expo-linear-gradient';
 import { Stack, router } from "expo-router";
 import { signInWithEmailAndPassword } from "firebase/auth";
+import { doc, getDoc } from "firebase/firestore";
 import React, { useEffect, useRef, useState } from "react";
 import {
   Alert,
@@ -20,7 +21,7 @@ import {
 } from "react-native";
 import { Circle, Defs, RadialGradient, Stop, Svg } from 'react-native-svg';
 import { useTheme } from '../../contexts/ThemeContext';
-import { auth } from "../../src2/firebase/config";
+import { auth, db } from "../../src2/firebase/config";
 
 const { width, height } = Dimensions.get('window');
 
@@ -265,8 +266,31 @@ export default function LoginScreen() {
     setLoading(true);
     try {
       await signInWithEmailAndPassword(auth, email.trim(), password);
-console.log("Login successful");
-router.replace("/(onboarding)/income"); // ADD THIS LINE
+      console.log("Login successful");
+      
+      // 🔥 ONBOARDING CHECK - Single Source of Truth
+      const user = auth.currentUser;
+      if (user) {
+        try {
+          // Check if onboarding data exists in userOnboardingData collection
+          const onboardingRef = doc(db, 'userOnboardingData', user.uid);
+          const onboardingDoc = await getDoc(onboardingRef);
+          
+          if (onboardingDoc.exists()) {
+            // User has completed onboarding → go to dashboard
+            console.log('Onboarding completed, redirecting to dashboard');
+            router.replace("/(tabs)");
+          } else {
+            // User has NOT completed onboarding → go to onboarding flow
+            console.log('Onboarding not completed, redirecting to onboarding');
+            router.replace("/(onboarding)/income");
+          }
+        } catch (onboardingCheckError) {
+          console.error('Error checking onboarding status:', onboardingCheckError);
+          // On error, default to onboarding to be safe
+          router.replace("/(onboarding)/income");
+        }
+      }
     } catch (err: any) {
       console.error("Login error:", err.code, err.message);
       

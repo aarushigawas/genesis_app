@@ -4,7 +4,7 @@ import { useTheme } from '@/contexts/ThemeContext';
 import Slider from '@react-native-community/slider';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
-import { StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Platform, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
 export default function IncomeScreen() {
   const router = useRouter();
@@ -15,7 +15,7 @@ export default function IncomeScreen() {
 
   const handleNext = () => {
     updateIncome(income);
-    router.push('/(onboarding)/categories');
+    router.push('/(onboarding)/budget');
   };
 
   return (
@@ -25,7 +25,7 @@ export default function IncomeScreen() {
           What's your monthly income?
         </Text>
         <Text style={[styles.subtitle, { color: theme.secondaryText }]}>
-          This helps us personalize your budget
+          This helps us personalize your savings program
         </Text>
 
         <View style={styles.previewContainer}>
@@ -37,22 +37,65 @@ export default function IncomeScreen() {
               const num = parseInt(text.replace(/[^0-9]/g, '')) || 0;
               setIncome(num);
             }}
-            keyboardType="numeric"
+            keyboardType={Platform.OS === 'web' ? 'default' : 'numeric'}
+            inputMode={Platform.OS === 'web' ? 'numeric' : undefined}
             maxLength={8}
           />
         </View>
 
-        <Slider
-          style={styles.slider}
-          minimumValue={0}
-          maximumValue={500000}
-          step={1000}
-          value={income}
-          onValueChange={setIncome}
-          minimumTrackTintColor={isDark ? '#B4A4F8' : '#D4A5A5'}
-          maximumTrackTintColor={theme.cardBorder}
-          thumbTintColor={isDark ? '#E8B4F8' : '#C49A9A'}
-        />
+        {Platform.OS === 'web' ? (
+          <View style={styles.webSliderContainer}>
+            <input
+              type="range"
+              min="0"
+              max="500000"
+              step="1000"
+              value={income}
+              onChange={(e) => setIncome(parseInt(e.target.value))}
+              style={{
+                width: '100%',
+                height: '40px',
+                WebkitAppearance: 'none',
+                appearance: 'none',
+                background: `linear-gradient(to right, ${isDark ? '#B4A4F8' : '#D4A5A5'} 0%, ${isDark ? '#B4A4F8' : '#D4A5A5'} ${(income / 500000) * 100}%, ${theme.cardBorder} ${(income / 500000) * 100}%, ${theme.cardBorder} 100%)`,
+                outline: 'none',
+                borderRadius: '8px',
+                cursor: 'pointer',
+              } as any}
+            />
+            <style>{`
+              input[type="range"]::-webkit-slider-thumb {
+                -webkit-appearance: none;
+                appearance: none;
+                width: 20px;
+                height: 20px;
+                border-radius: 50%;
+                background: ${isDark ? '#E8B4F8' : '#C49A9A'};
+                cursor: pointer;
+              }
+              input[type="range"]::-moz-range-thumb {
+                width: 20px;
+                height: 20px;
+                border-radius: 50%;
+                background: ${isDark ? '#E8B4F8' : '#C49A9A'};
+                cursor: pointer;
+                border: none;
+              }
+            `}</style>
+          </View>
+        ) : (
+          <Slider
+            style={styles.slider}
+            minimumValue={0}
+            maximumValue={500000}
+            step={1000}
+            value={income}
+            onValueChange={setIncome}
+            minimumTrackTintColor={isDark ? '#B4A4F8' : '#D4A5A5'}
+            maximumTrackTintColor={theme.cardBorder}
+            thumbTintColor={isDark ? '#E8B4F8' : '#C49A9A'}
+          />
+        )}
 
         <View style={styles.rangeLabels}>
           <Text style={[styles.rangeText, { color: theme.tertiaryText }]}>₹0</Text>
@@ -113,6 +156,11 @@ const styles = StyleSheet.create({
   slider: {
     width: '100%',
     height: 40,
+  },
+  webSliderContainer: {
+    width: '100%',
+    height: 40,
+    marginVertical: 0,
   },
   rangeLabels: {
     flexDirection: 'row',

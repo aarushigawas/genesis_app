@@ -3,19 +3,46 @@ import React, { createContext, ReactNode, useContext, useState } from 'react';
 
 type OnboardingData = {
   monthlyIncome: number | null;
-  categories: string[];
+
+  hasSavingGoal: boolean | null;
   monthlyBudget: number | null;
+  savingAmount: number | null;
+  savingPercentage: number | null;
+
+  categories: string[];
+
+  savingPurpose: {
+    type: string;
+    text?: string;
+  } | null;
+
+  savingDuration: {
+    value: number;
+    unit: 'months' | 'years';
+  } | null;
+
   notificationPreference: 'overspend' | 'weekly' | 'daily' | 'never' | null;
-  spendingPersonality: 'impulsive' | 'balanced' | 'planner' | null;
 };
 
 type OnboardingContextType = {
   data: OnboardingData;
   updateIncome: (income: number) => void;
+  updateBudget: (data: {
+    hasSavingGoal: boolean;
+    monthlyBudget: number;
+    savingAmount: number;
+    savingPercentage: number;
+  }) => void;
   updateCategories: (categories: string[]) => void;
-  updateBudget: (budget: number) => void;
+  updateSavingPurpose: (data: {
+    type: string;
+    text?: string;
+  }) => void;
+  updateSavingDuration: (data: {
+    value: number;
+    unit: 'months' | 'years';
+  }) => void;
   updateNotificationPreference: (preference: 'overspend' | 'weekly' | 'daily' | 'never') => void;
-  updateSpendingPersonality: (personality: 'impulsive' | 'balanced' | 'planner') => void;
   resetOnboarding: () => void;
 };
 
@@ -23,10 +50,14 @@ const OnboardingContext = createContext<OnboardingContextType | undefined>(undef
 
 const initialData: OnboardingData = {
   monthlyIncome: null,
-  categories: [],
+  hasSavingGoal: null,
   monthlyBudget: null,
+  savingAmount: null,
+  savingPercentage: null,
+  categories: [],
+  savingPurpose: null,
+  savingDuration: null,
   notificationPreference: null,
-  spendingPersonality: null,
 };
 
 export const OnboardingProvider = ({ children }: { children: ReactNode }) => {
@@ -36,20 +67,41 @@ export const OnboardingProvider = ({ children }: { children: ReactNode }) => {
     setData(prev => ({ ...prev, monthlyIncome: income }));
   };
 
+  const updateBudget = (budgetData: {
+    hasSavingGoal: boolean;
+    monthlyBudget: number;
+    savingAmount: number;
+    savingPercentage: number;
+  }) => {
+    setData(prev => ({
+      ...prev,
+      hasSavingGoal: budgetData.hasSavingGoal,
+      monthlyBudget: budgetData.monthlyBudget,
+      savingAmount: budgetData.savingAmount,
+      savingPercentage: budgetData.savingPercentage,
+    }));
+  };
+
   const updateCategories = (categories: string[]) => {
     setData(prev => ({ ...prev, categories }));
   };
 
-  const updateBudget = (budget: number) => {
-    setData(prev => ({ ...prev, monthlyBudget: budget }));
+  const updateSavingPurpose = (purposeData: {
+    type: string;
+    text?: string;
+  }) => {
+    setData(prev => ({ ...prev, savingPurpose: purposeData }));
+  };
+
+  const updateSavingDuration = (durationData: {
+    value: number;
+    unit: 'months' | 'years';
+  }) => {
+    setData(prev => ({ ...prev, savingDuration: durationData }));
   };
 
   const updateNotificationPreference = (preference: 'overspend' | 'weekly' | 'daily' | 'never') => {
     setData(prev => ({ ...prev, notificationPreference: preference }));
-  };
-
-  const updateSpendingPersonality = (personality: 'impulsive' | 'balanced' | 'planner') => {
-    setData(prev => ({ ...prev, spendingPersonality: personality }));
   };
 
   const resetOnboarding = () => {
@@ -61,10 +113,11 @@ export const OnboardingProvider = ({ children }: { children: ReactNode }) => {
       value={{
         data,
         updateIncome,
-        updateCategories,
         updateBudget,
+        updateCategories,
+        updateSavingPurpose,
+        updateSavingDuration,
         updateNotificationPreference,
-        updateSpendingPersonality,
         resetOnboarding,
       }}
     >

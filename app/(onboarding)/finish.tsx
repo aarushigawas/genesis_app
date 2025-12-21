@@ -23,22 +23,31 @@ export default function FinishScreen() {
       const user = auth.currentUser;
       
       if (!user) {
+        console.error('No authenticated user');
         setStatus('error');
         return;
       }
 
-      const userRef = doc(db, 'users', user.uid);
+      // IMPORTANT: Save to userOnboardingData collection (the source of truth)
+      // This is NOT the 'users' collection
+      const onboardingRef = doc(db, 'userOnboardingData', user.uid);
       
-      await setDoc(userRef, {
-        monthlyIncome: data.monthlyIncome,
-        categories: data.categories,
-        monthlyBudget: data.monthlyBudget,
-        notificationPreference: data.notificationPreference,
-        spendingPersonality: data.spendingPersonality,
-        onboardingComplete: true,
-        updatedAt: new Date().toISOString(),
-      }, { merge: true });
+      const onboardingData = {
+        monthlyIncome: data.monthlyIncome || 0,
+        monthlyBudget: data.monthlyBudget || 0,
+        savingAmount: data.savingAmount || 0,
+        savingPercentage: data.savingPercentage || 0,
+        hasSavingGoal: data.hasSavingGoal || false,
+        categories: data.categories || [],
+        savingPurpose: data.savingPurpose || null,
+        savingDuration: data.savingDuration || null,
+        notificationPreference: data.notificationPreference || 'never',
+        onboardingCompletedAt: new Date().toISOString(),
+      };
 
+      await setDoc(onboardingRef, onboardingData, { merge: true });
+
+      console.log('Onboarding data saved successfully to userOnboardingData collection');
       setStatus('success');
       
       // Reset onboarding state
@@ -46,7 +55,7 @@ export default function FinishScreen() {
       
       // Navigate to dashboard after a brief delay
       setTimeout(() => {
-        router.replace('/(tabs)');
+        router.replace('/(tabs)/dashboard');
       }, 1500);
       
     } catch (error) {
@@ -55,7 +64,7 @@ export default function FinishScreen() {
       
       // Still navigate even on error, but after longer delay
       setTimeout(() => {
-        router.replace('/(tabs)');
+        router.replace('/(tabs)/dashboard');
       }, 2000);
     }
   };
@@ -71,7 +80,7 @@ export default function FinishScreen() {
               style={styles.loader}
             />
             <Text style={[styles.title, { color: theme.primaryText }]}>
-              Setting up your profile...
+              Setting up your savings program...
             </Text>
             <Text style={[styles.subtitle, { color: theme.secondaryText }]}>
               This will only take a moment
@@ -95,14 +104,14 @@ export default function FinishScreen() {
               All set!
             </Text>
             <Text style={[styles.subtitle, { color: theme.secondaryText }]}>
-              Welcome to your personalized dashboard
+              Welcome to your personalized savings journey
             </Text>
           </>
         )}
 
         {status === 'error' && (
           <>
-            <Text style={[styles.title, { color: theme.errorColor }]}>
+            <Text style={[styles.title, { color: theme.errorColor || '#FF6B6B' }]}>
               Something went wrong
             </Text>
             <Text style={[styles.subtitle, { color: theme.secondaryText }]}>

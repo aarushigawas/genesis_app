@@ -3,7 +3,7 @@ import { useOnboarding } from '@/contexts/OnboardingContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
 const CATEGORIES = [
   'Food',
@@ -26,6 +26,8 @@ export default function CategoriesScreen() {
   const { updateCategories } = useOnboarding();
   
   const [selected, setSelected] = useState<string[]>([]);
+  const [showCustomInput, setShowCustomInput] = useState(false);
+  const [customCategory, setCustomCategory] = useState('');
 
   const toggleCategory = (category: string) => {
     if (selected.includes(category)) {
@@ -35,10 +37,28 @@ export default function CategoriesScreen() {
     }
   };
 
+  const handleAddCustom = () => {
+    const trimmed = customCategory.trim();
+    if (!trimmed) {
+      Alert.alert('Invalid Category', 'Please enter a category name');
+      return;
+    }
+    if (selected.includes(trimmed) || CATEGORIES.includes(trimmed)) {
+      Alert.alert('Duplicate Category', 'This category already exists');
+      return;
+    }
+    setSelected([...selected, trimmed]);
+    setCustomCategory('');
+    setShowCustomInput(false);
+  };
+
   const handleNext = () => {
-    if (selected.length === 0) return;
+    if (selected.length === 0) {
+      Alert.alert('Select Categories', 'Please select at least one category');
+      return;
+    }
     updateCategories(selected);
-    router.push('/(onboarding)/budget');
+    router.push('/(onboarding)/saving-purpose');
   };
 
   return (
@@ -84,7 +104,98 @@ export default function CategoriesScreen() {
               </TouchableOpacity>
             );
           })}
+
+          {/* Custom categories */}
+          {selected.filter(cat => !CATEGORIES.includes(cat)).map((category) => (
+            <TouchableOpacity
+              key={category}
+              style={[
+                styles.pill,
+                {
+                  backgroundColor: isDark ? 'rgba(184, 164, 248, 0.3)' : 'rgba(212, 165, 165, 0.3)',
+                  borderColor: isDark ? '#B4A4F8' : '#D4A5A5',
+                },
+              ]}
+              onPress={() => toggleCategory(category)}
+            >
+              <Text
+                style={[
+                  styles.pillText,
+                  {
+                    color: theme.primaryText,
+                    fontWeight: '600',
+                  },
+                ]}
+              >
+                {category}
+              </Text>
+            </TouchableOpacity>
+          ))}
+
+          {/* Add custom category button */}
+          {!showCustomInput && (
+            <TouchableOpacity
+              style={[
+                styles.pill,
+                styles.addPill,
+                {
+                  backgroundColor: theme.cardBackground,
+                  borderColor: theme.cardBorder,
+                  borderStyle: 'dashed',
+                },
+              ]}
+              onPress={() => setShowCustomInput(true)}
+            >
+              <Text
+                style={[
+                  styles.pillText,
+                  {
+                    color: theme.secondaryText,
+                    fontWeight: '500',
+                  },
+                ]}
+              >
+                ➕ Add your own
+              </Text>
+            </TouchableOpacity>
+          )}
         </View>
+
+        {/* Custom category input */}
+        {showCustomInput && (
+          <View style={styles.customInputContainer}>
+            <View style={[styles.customInputWrapper, { backgroundColor: theme.inputBackground, borderColor: theme.inputBorder }]}>
+              <TextInput
+                style={[styles.customInput, { color: theme.primaryText }]}
+                value={customCategory}
+                onChangeText={setCustomCategory}
+                placeholder="Enter category name"
+                placeholderTextColor={theme.inputPlaceholder}
+                autoFocus
+                maxLength={20}
+              />
+              <TouchableOpacity
+                style={[styles.addButton, { backgroundColor: isDark ? '#B4A4F8' : '#D4A5A5' }]}
+                onPress={handleAddCustom}
+              >
+                <Text style={[styles.addButtonText, { color: isDark ? '#1A1428' : '#3C2A21' }]}>
+                  Add
+                </Text>
+              </TouchableOpacity>
+            </View>
+            <TouchableOpacity
+              style={styles.cancelButton}
+              onPress={() => {
+                setShowCustomInput(false);
+                setCustomCategory('');
+              }}
+            >
+              <Text style={[styles.cancelButtonText, { color: theme.secondaryText }]}>
+                Cancel
+              </Text>
+            </TouchableOpacity>
+          </View>
+        )}
       </ScrollView>
 
       <TouchableOpacity
@@ -146,8 +257,44 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     borderWidth: 2,
   },
+  addPill: {
+    borderWidth: 2,
+  },
   pillText: {
     fontSize: 16,
+  },
+  customInputContainer: {
+    marginTop: 24,
+  },
+  customInputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 12,
+    borderWidth: 2,
+    paddingHorizontal: 16,
+    marginBottom: 12,
+  },
+  customInput: {
+    flex: 1,
+    fontSize: 16,
+    paddingVertical: 14,
+  },
+  addButton: {
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  addButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  cancelButton: {
+    alignItems: 'center',
+    paddingVertical: 8,
+  },
+  cancelButtonText: {
+    fontSize: 14,
+    fontWeight: '500',
   },
   button: {
     paddingVertical: 16,

@@ -1,5 +1,4 @@
-// FILE 2: app/(onboarding)/notifications.tsx
-// ==========================================
+// app/(onboarding)/notifications.tsx
 import { useOnboarding } from '@/contexts/OnboardingContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useRouter } from 'expo-router';
@@ -41,7 +40,7 @@ export default function NotificationsScreen() {
   const handleNext = () => {
     if (!selected) return;
     updateNotificationPreference(selected);
-    router.push('/(onboarding)/personality');
+    router.push('/(onboarding)/finish');
   };
 
   return (
@@ -49,6 +48,9 @@ export default function NotificationsScreen() {
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <Text style={[styles.title, { color: theme.primaryText }]}>
           Notification Preferences
+        </Text>
+        <Text style={[styles.subtitle, { color: theme.secondaryText }]}>
+          How often would you like updates?
         </Text>
 
         <View style={styles.optionsContainer}>
@@ -147,6 +149,10 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 32,
     fontWeight: '700',
+    marginBottom: 12,
+  },
+  subtitle: {
+    fontSize: 16,
     marginBottom: 40,
   },
   optionsContainer: {
