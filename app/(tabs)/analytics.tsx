@@ -3,14 +3,14 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  Animated,
-  Dimensions,
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
+    Animated,
+    Dimensions,
+    ScrollView,
+    StatusBar,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
 } from 'react-native';
 import { Circle, Defs, RadialGradient, Stop, Svg } from 'react-native-svg';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -251,8 +251,7 @@ export default function Analytics() {
     { month: 'Apr', amount: 8300 },
   ];
 
-  // ✅ Fix 1: Safely calculate maxAmount with fallback
-  const maxAmount = monthlyData.length > 0 ? Math.max(...monthlyData.map(d => Number(d.amount) || 0)) : 1;
+  const maxAmount = Math.max(...monthlyData.map(d => d.amount));
 
   return (
     <View style={styles.container}>
@@ -288,11 +287,7 @@ export default function Analytics() {
           <Text style={[styles.cardTitle, { color: theme.primaryText }]}>Monthly Spending</Text>
           <View style={styles.chartContainer}>
             {monthlyData.map((data, index) => {
-              // ✅ Fix 2 & 3: Guard barHeight calculation and clamp values
-              const barHeight = Math.max(
-                0,
-                Math.min(150, maxAmount > 0 ? (data.amount / maxAmount) * 150 : 0)
-              );
+              const barHeight = (data.amount / maxAmount) * 150;
               return (
                 <View key={index} style={styles.barContainer}>
                   <LinearGradient

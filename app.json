@@ -14,8 +14,7 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true,
-      "googleServicesFile": "./ios/GoogleService-Info.plist"
+      "supportsTablet": true
     },
     "android": {
       "adaptiveIcon": {
@@ -23,9 +22,7 @@
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false,
-      "package": "com.aarushi1502.genesis_app",
-      "googleServicesFile": "./android/app/google-services.json"
+      "predictiveBackGestureEnabled": false
     },
     "web": {
       "bundler": "metro",
@@ -34,8 +31,7 @@
     },
     "plugins": [
       "expo-router",
-      "expo-font",
-      "@react-native-google-signin/google-signin"
+      "expo-font"
     ],
     "experiments": {
       "typedRoutes": true

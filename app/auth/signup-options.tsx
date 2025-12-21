@@ -1,7 +1,11 @@
 // app/auth/signup-options.tsx
+import * as Google from 'expo-auth-session/providers/google';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Stack, router } from "expo-router";
+
 import * as WebBrowser from 'expo-web-browser';
+WebBrowser.maybeCompleteAuthSession();
+
 import { GoogleAuthProvider, signInWithCredential } from 'firebase/auth';
 import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
 import React, { useEffect, useRef, useState } from "react";
@@ -17,7 +21,6 @@ import {
   View,
 } from "react-native";
 import { Circle, Defs, RadialGradient, Stop, Svg } from 'react-native-svg';
-import GoogleAuth from '../../components/firebase-auth/google-auth';
 import { useTheme } from '../../contexts/ThemeContext';
 import { auth, db } from "../../src2/firebase/config";
 
@@ -219,6 +222,14 @@ export default function SignUpOptionsScreen() {
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(30)).current;
 
+  // ✅ CORRECT FOR EXPO GO
+  const redirectUri = 'https://auth.expo.io/@aarushi1502/genesis_app';
+
+  const [request, response, promptAsync] = Google.useAuthRequest({
+    clientId: '957192498846-kqq85icb9tutr94msevqraua0lvopeq7.apps.googleusercontent.com',
+    redirectUri,
+  });
+
   useEffect(() => {
     Animated.parallel([
       Animated.timing(fadeAnim, {
@@ -235,18 +246,36 @@ export default function SignUpOptionsScreen() {
     ]).start();
   }, []);
 
-  const handleGoogleSignInSuccess = async (idToken: string, accessToken: string) => {
+  useEffect(() => {
+    if (response?.type === 'success') {
+      const { authentication } = response;
+      handleGoogleSignIn(authentication);
+    } else if (response?.type === 'error') {
+      console.error('Google Auth Error:', response.error);
+      Alert.alert('Authentication Error', 'Failed to authenticate with Google. Please try again.');
+    }
+  }, [response]);
+
+  const handleGoogleSignIn = async (authentication: any) => {
     try {
       setLoading(true);
       
-      const credential = GoogleAuthProvider.credential(idToken, accessToken);
+      // Create credential for Firebase
+      const credential = GoogleAuthProvider.credential(
+        authentication.idToken,
+        authentication.accessToken
+      );
+      
+      // Sign in with Firebase
       const userCredential = await signInWithCredential(auth, credential);
       const user = userCredential.user;
       
+      // Check if user document exists
       const userDocRef = doc(db, 'users', user.uid);
       const userDoc = await getDoc(userDocRef);
       
       if (!userDoc.exists()) {
+        // New user - create basic profile
         await setDoc(userDocRef, {
           uid: user.uid,
           email: user.email,
@@ -258,7 +287,9 @@ export default function SignUpOptionsScreen() {
           isProfileComplete: false,
         });
         
+        // Check if phone number is missing
         if (!user.phoneNumber) {
+          // Redirect to complete profile screen
           router.replace({
             pathname: '/auth/complete-profile',
             params: {
@@ -268,6 +299,7 @@ export default function SignUpOptionsScreen() {
             }
           });
         } else {
+          // Phone number exists, mark as complete and proceed to app
           await setDoc(userDocRef, {
             phoneNumber: user.phoneNumber,
             isProfileComplete: true,
@@ -276,8 +308,10 @@ export default function SignUpOptionsScreen() {
           router.replace('/(tabs)/dashboard');
         }
       } else {
+        // Existing user - check if phone number exists
         const userData = userDoc.data();
         if (!userData.phoneNumber) {
+          // Phone number missing, redirect to complete profile
           router.replace({
             pathname: '/auth/complete-profile',
             params: {
@@ -287,6 +321,7 @@ export default function SignUpOptionsScreen() {
             }
           });
         } else {
+          // All good, proceed to app
           router.replace('/(tabs)/dashboard');
         }
       }
@@ -301,9 +336,13 @@ export default function SignUpOptionsScreen() {
     }
   };
 
-  const handleGoogleSignInError = (error: any) => {
-    console.error('Google Auth Error:', error);
-    Alert.alert('Authentication Error', error.message || 'Failed to authenticate with Google. Please try again.');
+  const handleGooglePress = async () => {
+    try {
+      await promptAsync();
+    } catch (error) {
+      console.error('Error prompting Google auth:', error);
+      Alert.alert('Error', 'Failed to open Google sign-in. Please try again.');
+    }
   };
 
   const handleManualSignup = () => {
@@ -359,10 +398,12 @@ export default function SignUpOptionsScreen() {
         </View>
 
         <View style={styles.buttonContainer}>
-          <GoogleAuth 
-            onSuccess={handleGoogleSignInSuccess}
-            onError={handleGoogleSignInError}
-            disabled={loading}
+          <AnimatedButton
+            title="Continue with Google"
+            isPrimary={false}
+            onPress={handleGooglePress}
+            disabled={loading || !request}
+            icon="🔍"
           />
           
           <View style={styles.divider}>
