@@ -11,7 +11,7 @@ export default function FinishScreen() {
   const router = useRouter();
   const { theme, isDark } = useTheme();
   const { data, resetOnboarding } = useOnboarding();
-  
+
   const [status, setStatus] = useState<'saving' | 'success' | 'error'>('saving');
 
   useEffect(() => {
@@ -21,24 +21,26 @@ export default function FinishScreen() {
   const saveToFirestore = async () => {
     try {
       const user = auth.currentUser;
-      
+
       if (!user) {
         console.error('No authenticated user');
         setStatus('error');
         return;
       }
 
-      // IMPORTANT: Save to userOnboardingData collection (the source of truth)
-      // This is NOT the 'users' collection
+      /**
+       * Save onboarding preferences only.
+       * Categories are NOT saved here anymore.
+       * Categories are derived dynamically from transactions.
+       */
       const onboardingRef = doc(db, 'userOnboardingData', user.uid);
-      
+
       const onboardingData = {
         monthlyIncome: data.monthlyIncome || 0,
         monthlyBudget: data.monthlyBudget || 0,
         savingAmount: data.savingAmount || 0,
         savingPercentage: data.savingPercentage || 0,
         hasSavingGoal: data.hasSavingGoal || false,
-        categories: data.categories || [],
         savingPurpose: data.savingPurpose || null,
         savingDuration: data.savingDuration || null,
         notificationPreference: data.notificationPreference || 'never',
@@ -47,22 +49,21 @@ export default function FinishScreen() {
 
       await setDoc(onboardingRef, onboardingData, { merge: true });
 
-      console.log('Onboarding data saved successfully to userOnboardingData collection');
+      console.log('Onboarding data saved successfully');
       setStatus('success');
-      
-      // Reset onboarding state
+
+      // Reset onboarding state in context
       resetOnboarding();
-      
+
       // Navigate to dashboard after a brief delay
       setTimeout(() => {
         router.replace('/(tabs)/dashboard');
       }, 1500);
-      
     } catch (error) {
       console.error('Error saving onboarding data:', error);
       setStatus('error');
-      
-      // Still navigate even on error, but after longer delay
+
+      // Still navigate even on error
       setTimeout(() => {
         router.replace('/(tabs)/dashboard');
       }, 2000);
@@ -96,7 +97,12 @@ export default function FinishScreen() {
                 { backgroundColor: isDark ? '#B4A4F8' : '#D4A5A5' },
               ]}
             >
-              <Text style={[styles.checkmarkText, { color: isDark ? '#1A1428' : '#3C2A21' }]}>
+              <Text
+                style={[
+                  styles.checkmarkText,
+                  { color: isDark ? '#1A1428' : '#3C2A21' },
+                ]}
+              >
                 ✓
               </Text>
             </View>
@@ -111,7 +117,12 @@ export default function FinishScreen() {
 
         {status === 'error' && (
           <>
-            <Text style={[styles.title, { color: theme.errorColor || '#FF6B6B' }]}>
+            <Text
+              style={[
+                styles.title,
+                { color: theme.errorColor || '#FF6B6B' },
+              ]}
+            >
               Something went wrong
             </Text>
             <Text style={[styles.subtitle, { color: theme.secondaryText }]}>

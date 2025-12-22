@@ -3,14 +3,14 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import {
-    Animated,
-    Dimensions,
-    ScrollView,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  Animated,
+  Dimensions,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { Circle, Defs, RadialGradient, Stop, Svg } from 'react-native-svg';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -282,6 +282,28 @@ export default function Analytics() {
             Your spending insights
           </Text>
         </View>
+        <AnimatedCard
+  style={{ marginBottom: 20 }}
+>
+  <TouchableOpacity
+    activeOpacity={0.8}
+    onPress={() => router.push('/transactions/months' as any)}
+  >
+    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+      <View>
+        <Text style={[styles.cardTitle, { color: theme.primaryText }]}>
+          Monthly Overview
+        </Text>
+        <Text style={{ color: theme.secondaryText, fontSize: 14 }}>
+          See all your months, transactions & savings
+        </Text>
+      </View>
+
+      <Text style={{ fontSize: 28 }}>📅</Text>
+    </View>
+  </TouchableOpacity>
+</AnimatedCard>
+
 
         <AnimatedCard>
           <Text style={[styles.cardTitle, { color: theme.primaryText }]}>Monthly Spending</Text>

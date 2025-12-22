@@ -4,15 +4,15 @@ import { router } from 'expo-router';
 import { doc, getDoc } from 'firebase/firestore';
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
-  Animated,
-  Dimensions,
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View
+    ActivityIndicator,
+    Animated,
+    Dimensions,
+    ScrollView,
+    StatusBar,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View
 } from 'react-native';
 import { Circle, Defs, Stop, Svg, RadialGradient as SvgRadialGradient } from 'react-native-svg';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -178,13 +178,16 @@ const BottomTabBar = ({ activeTab }: { activeTab: string }) => {
     analytics: useRef(new Animated.Value(1)).current,
     settings: useRef(new Animated.Value(1)).current,
     profile: useRef(new Animated.Value(1)).current,
+    transactions: useRef(new Animated.Value(1)).current,
   };
 
   const tabs = [
     { id: 'dashboard', label: 'Home', icon: '🏠', route: '/(tabs)/dashboard' },
+    { id: 'transactions', label: 'Transactions', icon: '➕', route: '/(tabs)/transactions' },
     { id: 'analytics', label: 'Analytics', icon: '📈', route: '/(tabs)/analytics' },
     { id: 'settings', label: 'Settings', icon: '⚙️', route: '/(tabs)/settings' },
     { id: 'profile', label: 'Profile', icon: '👤', route: '/(tabs)/profile' },
+    
   ];
 
   const handlePressIn = (tabId: string) => {

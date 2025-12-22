@@ -58,7 +58,7 @@ export default function BudgetScreen() {
         savingAmount: 0,
         savingPercentage: 0,
       });
-      router.push('/(onboarding)/categories');
+      router.push('/(onboarding)/saving-purpose');
     }
   };
 
