@@ -279,7 +279,7 @@ export default function LoginScreen() {
           if (onboardingDoc.exists()) {
             // User has completed onboarding → go to dashboard
             console.log('Onboarding completed, redirecting to dashboard');
-            router.replace("/(tabs)");
+            router.replace("/(tabs)/dashboard");
           } else {
             // User has NOT completed onboarding → go to onboarding flow
             console.log('Onboarding not completed, redirecting to onboarding');
