@@ -3,13 +3,14 @@ import React, { createContext, ReactNode, useContext, useState } from 'react';
 
 type OnboardingData = {
   monthlyIncome: number | null;
+  currentBankBalance: number | null; // NEW: Bank balance field
 
   hasSavingGoal: boolean | null;
   monthlyBudget: number | null;
   savingAmount: number | null;
   savingPercentage: number | null;
 
-  categories: string[];
+ 
 
   savingPurpose: {
     type: string;
@@ -26,14 +27,14 @@ type OnboardingData = {
 
 type OnboardingContextType = {
   data: OnboardingData;
-  updateIncome: (income: number) => void;
+  updateIncome: (income: number, bankBalance: number) => void; // UPDATED: Now accepts bankBalance
   updateBudget: (data: {
     hasSavingGoal: boolean;
     monthlyBudget: number;
     savingAmount: number;
     savingPercentage: number;
   }) => void;
-  updateCategories: (categories: string[]) => void;
+  
   updateSavingPurpose: (data: {
     type: string;
     text?: string;
@@ -50,11 +51,12 @@ const OnboardingContext = createContext<OnboardingContextType | undefined>(undef
 
 const initialData: OnboardingData = {
   monthlyIncome: null,
+  currentBankBalance: null, // NEW: Initialize bank balance
   hasSavingGoal: null,
   monthlyBudget: null,
   savingAmount: null,
   savingPercentage: null,
-  categories: [],
+ 
   savingPurpose: null,
   savingDuration: null,
   notificationPreference: null,
@@ -63,8 +65,12 @@ const initialData: OnboardingData = {
 export const OnboardingProvider = ({ children }: { children: ReactNode }) => {
   const [data, setData] = useState<OnboardingData>(initialData);
 
-  const updateIncome = (income: number) => {
-    setData(prev => ({ ...prev, monthlyIncome: income }));
+  const updateIncome = (income: number, bankBalance: number) => {
+    setData(prev => ({ 
+      ...prev, 
+      monthlyIncome: income,
+      currentBankBalance: bankBalance // NEW: Set bank balance
+    }));
   };
 
   const updateBudget = (budgetData: {
@@ -82,9 +88,7 @@ export const OnboardingProvider = ({ children }: { children: ReactNode }) => {
     }));
   };
 
-  const updateCategories = (categories: string[]) => {
-    setData(prev => ({ ...prev, categories }));
-  };
+  
 
   const updateSavingPurpose = (purposeData: {
     type: string;
@@ -114,7 +118,6 @@ export const OnboardingProvider = ({ children }: { children: ReactNode }) => {
         data,
         updateIncome,
         updateBudget,
-        updateCategories,
         updateSavingPurpose,
         updateSavingDuration,
         updateNotificationPreference,

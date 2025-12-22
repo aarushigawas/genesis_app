@@ -15,15 +15,14 @@ export default function OnboardingLayout() {
   
   // Calculate progress based on current screen
   const getProgress = () => {
-    if (pathname.includes('/income')) return 0;
-    if (pathname.includes('/budget')) return 20;
-    if (pathname.includes('/categories')) return 40;
-    if (pathname.includes('/saving-purpose')) return 60;
-    if (pathname.includes('/saving-duration')) return 80;
-    if (pathname.includes('/notifications')) return 90;
-    if (pathname.includes('/finish')) return 100;
-    return 0;
-  };
+  if (pathname.includes('/income')) return 0;
+  if (pathname.includes('/budget')) return 25;
+  if (pathname.includes('/saving-purpose')) return 50;
+  if (pathname.includes('/saving-duration')) return 75;
+  if (pathname.includes('/notifications')) return 90;
+  if (pathname.includes('/finish')) return 100;
+  return 0;
+};
 
   const progress = getProgress();
   const progressAnim = useRef(new Animated.Value(0)).current;

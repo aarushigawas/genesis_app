@@ -3,13 +3,13 @@ import { useRouter } from 'expo-router';
 import { doc, serverTimestamp, setDoc } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { auth, db } from '../../src2/firebase/config';
 
@@ -395,7 +395,6 @@ async function saveTransactionsToFirestore(
 
 // ============================================================================
 // CALCULATE CATEGORY SUMMARIES (for circle cards)
-// This aggregates transactions by category to show summary circles
 // ============================================================================
 
 function calculateCategorySummaries(transactions: ParsedTransaction[]): CategorySummary[] {
@@ -415,7 +414,6 @@ function calculateCategorySummaries(transactions: ParsedTransaction[]): Category
     categoryMap[txn.category].count++;
     categoryMap[txn.category].total += txn.amount;
     
-    // Handle mixed types (both income and expense in same category)
     if (categoryMap[txn.category].type !== txn.type) {
       categoryMap[txn.category].type = 'mixed';
     }
@@ -437,12 +435,10 @@ export default function CSVImportScreen() {
   const [categorySummaries, setCategorySummaries] = useState<CategorySummary[]>([]);
   const [otherMonthsGroups, setOtherMonthsGroups] = useState<MonthGroup[]>([]);
   
-  // Track which transaction is being edited
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   
   // ============================================================================
   // RECALCULATE SUMMARIES whenever transactions change
-  // This ensures UI stays in sync after user fixes categories
   // ============================================================================
   
   useEffect(() => {
@@ -504,7 +500,6 @@ export default function CSVImportScreen() {
         return;
       }
       
-      // Group by month
       const currentMonth = new Date().toISOString().substring(0, 7);
       const otherMonthTxns = parsedTransactions.filter(t => t.month !== currentMonth);
       
@@ -539,15 +534,12 @@ export default function CSVImportScreen() {
   
   // ============================================================================
   // CATEGORY CHANGE HANDLER
-  // Called when user selects a category for an uncategorized transaction
   // ============================================================================
   
   const handleCategorySelect = (index: number, newCategory: string) => {
     const updated = [...transactions];
     updated[index].category = newCategory;
     updated[index].confidence = 'high';
-    
-    // Recalculate affectsBudget based on new category
     updated[index].affectsBudget = shouldAffectBudget(newCategory, updated[index].type);
     
     setTransactions(updated);
@@ -555,7 +547,7 @@ export default function CSVImportScreen() {
   };
   
   // ============================================================================
-  // VALIDATION: Check if all transactions are categorized
+  // VALIDATION
   // ============================================================================
   
   const hasUncategorized = transactions.some(
@@ -567,11 +559,10 @@ export default function CSVImportScreen() {
   ).length;
   
   // ============================================================================
-  // SAVE HANDLER with validation
+  // SAVE HANDLER - FIXED VERSION
   // ============================================================================
   
   const handleSave = async () => {
-    // VALIDATION: Block save if uncategorized transactions exist
     if (hasUncategorized) {
       Alert.alert(
         'Categorization Required',
@@ -584,30 +575,40 @@ export default function CSVImportScreen() {
     try {
       setLoading(true);
       
+      // Save transactions to Firebase FIRST
       const result = await saveTransactionsToFirestore(transactions);
       
-      Alert.alert(
-        'Import Complete',
-        `Successfully imported ${result.success} transaction${result.success !== 1 ? 's' : ''}.${
-          result.failed > 0 ? ` ${result.failed} failed.` : ''
-        }`,
-        [
-          {
-            text: 'OK',
-            onPress: () => router.back(),
-          },
-        ]
-      );
+      // Stop loading BEFORE navigation
+      setLoading(false);
+      
+      if (result.failed > 0) {
+        Alert.alert(
+          'Partial Import',
+          `${result.success} succeeded, ${result.failed} failed. Review and try again?`,
+          [{ text: 'OK' }]
+        );
+        return;
+      }
+      
+      // Navigate to budget decision screen with success flag
+      router.push({
+        pathname: '/parsing/csv-imports',
+        params: {
+          transactions: JSON.stringify(transactions),
+          importSuccess: 'true',
+          transactionCount: transactions.length.toString(),
+        },
+      });
+      
     } catch (error) {
+      setLoading(false);
       console.error('Save error:', error);
       Alert.alert('Error', 'Failed to save transactions. Please try again.');
-    } finally {
-      setLoading(false);
     }
   };
   
   // ============================================================================
-  // RENDER: Empty State (before file import)
+  // RENDER: Empty State
   // ============================================================================
   
   if (transactions.length === 0) {
@@ -654,7 +655,7 @@ export default function CSVImportScreen() {
   }
   
   // ============================================================================
-  // RENDER: Review State (after file import)
+  // RENDER: Review State
   // ============================================================================
   
   return (
@@ -670,11 +671,6 @@ export default function CSVImportScreen() {
       </View>
       
       <ScrollView style={styles.content}>
-        
-        {/* ====================================================================
-            CIRCULAR CATEGORY SUMMARY SECTION
-            Shows aggregated spending by category BEFORE import
-            ==================================================================== */}
         
         {categorySummaries.length > 0 && (
           <View style={styles.section}>
@@ -714,7 +710,6 @@ export default function CSVImportScreen() {
           </View>
         )}
         
-        {/* Other Months Warning */}
         {otherMonthsGroups.length > 0 && (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Previous Months</Text>
@@ -734,7 +729,6 @@ export default function CSVImportScreen() {
           </View>
         )}
         
-        {/* Uncategorized Warning */}
         {hasUncategorized && (
           <View style={styles.warningBox}>
             <Text style={styles.warningTitle}>⚠️ Action Required</Text>
@@ -744,11 +738,6 @@ export default function CSVImportScreen() {
             </Text>
           </View>
         )}
-        
-        {/* ====================================================================
-            ALL TRANSACTIONS LIST with FIXABLE CATEGORIES
-            Shows every transaction with ability to fix uncategorized ones
-            ==================================================================== */}
         
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>All Transactions</Text>
@@ -786,11 +775,6 @@ export default function CSVImportScreen() {
                     })}
                   </Text>
                 </View>
-                
-                {/* ============================================================
-                    CATEGORY SELECTION UI (for uncategorized transactions)
-                    Shows dropdown when user needs to fix category
-                    ============================================================ */}
                 
                 {isUncategorized && !isEditing && (
                   <View style={styles.categorizationPrompt}>
@@ -846,11 +830,6 @@ export default function CSVImportScreen() {
           })}
         </View>
       </ScrollView>
-      
-      {/* ====================================================================
-          IMPORT BUTTON with validation
-          Disabled if uncategorized transactions exist
-          ==================================================================== */}
       
       <View style={styles.footer}>
         {hasUncategorized && (
@@ -980,10 +959,6 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   
-  // ============================================================================
-  // CIRCULAR CATEGORY SUMMARY STYLES
-  // ============================================================================
-  
   circleGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -1045,10 +1020,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   
-  // ============================================================================
-  // MONTH GROUP STYLES
-  // ============================================================================
-  
   monthGroup: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -1064,10 +1035,6 @@ const styles = StyleSheet.create({
     color: '#999',
     fontSize: 14,
   },
-  
-  // ============================================================================
-  // WARNING BOX STYLES
-  // ============================================================================
   
   warningBox: {
     backgroundColor: '#2a1f1f',
@@ -1088,10 +1055,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
   },
-  
-  // ============================================================================
-  // TRANSACTION CARD STYLES
-  // ============================================================================
   
   transactionCard: {
     backgroundColor: '#1a1a1a',
@@ -1138,10 +1101,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   
-  // ============================================================================
-  // CATEGORY BADGE STYLES (for categorized transactions)
-  // ============================================================================
-  
   categoryBadge: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1162,10 +1121,6 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     overflow: 'hidden',
   },
-  
-  // ============================================================================
-  // CATEGORIZATION PROMPT STYLES (for uncategorized transactions)
-  // ============================================================================
   
   categorizationPrompt: {
     marginTop: 12,
@@ -1191,10 +1146,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
   },
-  
-  // ============================================================================
-  // CATEGORY SELECTOR STYLES (dropdown/grid for selecting category)
-  // ============================================================================
   
   categorySelector: {
     marginTop: 12,
@@ -1239,10 +1190,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
   },
-  
-  // ============================================================================
-  // FOOTER / IMPORT BUTTON STYLES
-  // ============================================================================
   
   footer: {
     padding: 20,

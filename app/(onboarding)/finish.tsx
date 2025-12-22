@@ -28,15 +28,12 @@ export default function FinishScreen() {
         return;
       }
 
-      /**
-       * Save onboarding preferences only.
-       * Categories are NOT saved here anymore.
-       * Categories are derived dynamically from transactions.
-       */
+     
       const onboardingRef = doc(db, 'userOnboardingData', user.uid);
 
       const onboardingData = {
         monthlyIncome: data.monthlyIncome || 0,
+        currentBankBalance: data.currentBankBalance || 0, // NEW: Bank balance
         monthlyBudget: data.monthlyBudget || 0,
         savingAmount: data.savingAmount || 0,
         savingPercentage: data.savingPercentage || 0,
@@ -49,7 +46,7 @@ export default function FinishScreen() {
 
       await setDoc(onboardingRef, onboardingData, { merge: true });
 
-      console.log('Onboarding data saved successfully');
+      console.log('✅ Onboarding data saved successfully:', onboardingData);
       setStatus('success');
 
       // Reset onboarding state in context
@@ -60,7 +57,7 @@ export default function FinishScreen() {
         router.replace('/(tabs)/dashboard');
       }, 1500);
     } catch (error) {
-      console.error('Error saving onboarding data:', error);
+      console.error('❌ Error saving onboarding data:', error);
       setStatus('error');
 
       // Still navigate even on error
