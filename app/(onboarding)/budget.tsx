@@ -105,7 +105,7 @@ export default function BudgetScreen() {
       savingPercentage,
     });
     
-    router.push('/(onboarding)/categories');
+    router.push('/(onboarding)/saving-purpose');
   };
 
   const renderPreview = () => {
