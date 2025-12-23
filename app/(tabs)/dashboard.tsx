@@ -1,18 +1,21 @@
-// app/(tabs)/dashboard.tsx
+// app/(tabs)/dashboard.tsx - COMPLETE WITH REAL FIRESTORE DATA
+
+import { useFocusEffect } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
-import { doc, getDoc } from 'firebase/firestore';
-import React, { useEffect, useRef, useState } from 'react';
+import { collection, doc, getDoc, getDocs, query, where } from 'firebase/firestore';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-    ActivityIndicator,
-    Animated,
-    Dimensions,
-    ScrollView,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View
+  ActivityIndicator,
+  Animated,
+  Dimensions,
+  RefreshControl,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View
 } from 'react-native';
 import { Circle, Defs, Stop, Svg, RadialGradient as SvgRadialGradient } from 'react-native-svg';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -21,6 +24,7 @@ import { auth, db } from '../../src2/firebase/config';
 const { width, height } = Dimensions.get('window');
 
 // ============== INTERFACES ==============
+
 interface SavingPurpose {
   text: string;
   type: string;
@@ -35,7 +39,7 @@ interface UserData {
   name?: string;
   monthlyIncome?: number;
   monthlyBudget?: number;
-  savingPercentage?: number; // 0-100 only
+  savingPercentage?: number;
   hasSavingGoal?: boolean;
   categories?: string[];
   savingPurpose?: SavingPurpose | null;
@@ -43,12 +47,32 @@ interface UserData {
   notificationPreference?: string;
 }
 
-// Sample transactions (will be empty until SMS/CSV parsing is done)
-const sampleTransactions = [
-  { id: "1", title: "Sample Transaction", amount: 0, category: "Food", date: "Not real data", isPlaceholder: true }
-];
+interface Transaction {
+  id: string;
+  uid: string;
+  amount: number;
+  merchantName: string;
+  category: string;
+  date: string;
+  type: 'income' | 'expense' | 'transfer';
+  affectsBudget: boolean;
+  source: string;
+  month: string;
+  year: number;
+  confidence?: number;
+  rawText?: string;
+}
+
+interface CategorySpending {
+  name: string;
+  amount: number;
+  percentage: number;
+  transactions: number;
+  icon: string;
+}
 
 // ============== STAR BACKGROUND (DARK MODE) ==============
+
 const DreamyStarBackground = () => {
   const [stars, setStars] = useState<any[]>([]);
 
@@ -112,6 +136,7 @@ const DreamyStarBackground = () => {
 };
 
 // ============== FLOATING FLOWERS (LIGHT MODE) ==============
+
 const FloatingFlowers = () => {
   const [flowers, setFlowers] = useState<any[]>([]);
 
@@ -171,6 +196,7 @@ const FloatingFlowers = () => {
 };
 
 // ============== BOTTOM TAB BAR ==============
+
 const BottomTabBar = ({ activeTab }: { activeTab: string }) => {
   const { theme } = useTheme();
   const scaleAnims = {
@@ -183,11 +209,10 @@ const BottomTabBar = ({ activeTab }: { activeTab: string }) => {
 
   const tabs = [
     { id: 'dashboard', label: 'Home', icon: '🏠', route: '/(tabs)/dashboard' },
-    { id: 'transactions', label: 'Transactions', icon: '➕', route: '/(tabs)/transactions' },
+    { id: 'transactions', label: 'Transactions', icon: '💳', route: '/(tabs)/transactions' },
     { id: 'analytics', label: 'Analytics', icon: '📈', route: '/(tabs)/analytics' },
     { id: 'settings', label: 'Settings', icon: '⚙️', route: '/(tabs)/settings' },
     { id: 'profile', label: 'Profile', icon: '👤', route: '/(tabs)/profile' },
-    
   ];
 
   const handlePressIn = (tabId: string) => {
@@ -246,16 +271,23 @@ const BottomTabBar = ({ activeTab }: { activeTab: string }) => {
 };
 
 // ============== MAIN DASHBOARD COMPONENT ==============
+
 export default function Dashboard() {
   const { theme, isDark } = useTheme();
   const [userData, setUserData] = useState<UserData | null>(null);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [selectedMonth, setSelectedMonth] = useState(getCurrentMonth());
 
-  useEffect(() => {
-    fetchUserData();
-  }, []);
+  // Fetch data on mount and when screen comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      fetchData();
+    }, [selectedMonth])
+  );
 
-  const fetchUserData = async () => {
+  const fetchData = async () => {
     try {
       const currentUser = auth.currentUser;
       if (!currentUser?.uid) {
@@ -265,6 +297,7 @@ export default function Dashboard() {
 
       const uid = currentUser.uid;
 
+      // Fetch user data from both collections
       const [userDocSnap, onboardingDocSnap] = await Promise.all([
         getDoc(doc(db, "users", uid)),
         getDoc(doc(db, "userOnboardingData", uid))
@@ -276,11 +309,38 @@ export default function Dashboard() {
       };
 
       setUserData(mergedData);
+
+      // Fetch transactions for selected month
+      const transactionsRef = collection(db, "transactions", uid, "items");
+      const q = query(transactionsRef, where("month", "==", selectedMonth));
+      
+      const querySnapshot = await getDocs(q);
+      const fetchedTransactions: Transaction[] = [];
+      
+      querySnapshot.forEach((doc) => {
+        fetchedTransactions.push({
+          id: doc.id,
+          ...doc.data()
+        } as Transaction);
+      });
+
+      // Sort by date descending
+      fetchedTransactions.sort((a, b) => 
+        new Date(b.date).getTime() - new Date(a.date).getTime()
+      );
+
+      setTransactions(fetchedTransactions);
     } catch (error) {
-      console.error("Error fetching user data:", error);
+      console.error("Error fetching data:", error);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
+  };
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    fetchData();
   };
 
   const getGreeting = () => {
@@ -289,6 +349,26 @@ export default function Dashboard() {
     if (hour < 18) return "Good Afternoon";
     return "Good Evening";
   };
+
+  // Calculate spending statistics
+  const calculateStats = () => {
+    const budgetAffectingTransactions = transactions.filter(t => t.affectsBudget);
+    const totalSpent = budgetAffectingTransactions.reduce((sum, t) => {
+      return t.type === 'expense' ? sum + t.amount : sum;
+    }, 0);
+
+    const totalIncome = transactions
+      .filter(t => t.type === 'income')
+      .reduce((sum, t) => sum + t.amount, 0);
+
+    const totalTransfers = transactions
+      .filter(t => t.type === 'transfer')
+      .reduce((sum, t) => sum + t.amount, 0);
+
+    return { totalSpent, totalIncome, totalTransfers };
+  };
+
+  const { totalSpent, totalIncome, totalTransfers } = calculateStats();
 
   if (loading) {
     return (
@@ -302,6 +382,9 @@ export default function Dashboard() {
         />
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={theme.accent[0]} />
+          <Text style={[styles.loadingText, { color: theme.secondaryText }]}>
+            Loading your data...
+          </Text>
         </View>
       </View>
     );
@@ -325,6 +408,13 @@ export default function Dashboard() {
         style={styles.scrollView} 
         showsVerticalScrollIndicator={false} 
         contentContainerStyle={styles.scrollContent}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={theme.accent[0]}
+          />
+        }
       >
         {/* Header with Greeting */}
         <View style={styles.header}>
@@ -338,14 +428,21 @@ export default function Dashboard() {
           </View>
         </View>
 
-        {/* 1. Quote Box with Smile Image */}
+        {/* Month Selector */}
+        <MonthSelector 
+          selectedMonth={selectedMonth}
+          onMonthChange={setSelectedMonth}
+        />
+
+        {/* 1. Quote Box */}
         <QuoteBox savingPurpose={userData?.savingPurpose} />
 
-        {/* 2. Airplane Progress Section */}
+        {/* 2. Airplane Progress */}
         <AirplaneProgress 
           savingPercentage={userData?.savingPercentage}
           monthlyBudget={userData?.monthlyBudget}
           savingDuration={userData?.savingDuration}
+          totalSpent={totalSpent}
         />
 
         {/* 3. Circular Progress + Categories */}
@@ -354,22 +451,29 @@ export default function Dashboard() {
           monthlyBudget={userData?.monthlyBudget}
           savingDuration={userData?.savingDuration}
           categories={userData?.categories || []}
+          transactions={transactions}
         />
 
         {/* 4. Month Progress + Calendar */}
         <MonthCalendarSection 
           savingDuration={userData?.savingDuration}
           monthlyBudget={userData?.monthlyBudget}
+          totalSpent={totalSpent}
+          selectedMonth={selectedMonth}
         />
 
-        {/* 5. SMS and PDF Import Boxes */}
+        {/* 5. SMS and CSV Import */}
         <ImportBoxes />
 
         {/* 6. Categories Breakdown */}
-        <CategoriesBreakdown categories={userData?.categories || []} />
+        <CategoriesBreakdown 
+          categories={userData?.categories || []} 
+          transactions={transactions}
+          monthlyBudget={userData?.monthlyBudget}
+        />
 
         {/* 7. Recent Transactions */}
-        <RecentTransactionsSection />
+        <RecentTransactionsSection transactions={transactions} />
 
         <View style={{ height: 100 }} />
       </ScrollView>
@@ -379,7 +483,68 @@ export default function Dashboard() {
   );
 }
 
-// ============== 1. QUOTE BOX WITH SMILE ==============
+// ============== HELPER FUNCTION ==============
+
+function getCurrentMonth(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+}
+
+// ============== MONTH SELECTOR ==============
+
+const MonthSelector = ({ selectedMonth, onMonthChange }: { 
+  selectedMonth: string; 
+  onMonthChange: (month: string) => void;
+}) => {
+  const { theme, isDark } = useTheme();
+  
+  const months = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'
+  ];
+
+  const [year, month] = selectedMonth.split('-');
+  const monthIndex = parseInt(month) - 1;
+  const monthName = months[monthIndex];
+
+  const changeMonth = (direction: 'prev' | 'next') => {
+    const date = new Date(parseInt(year), monthIndex, 1);
+    if (direction === 'prev') {
+      date.setMonth(date.getMonth() - 1);
+    } else {
+      date.setMonth(date.getMonth() + 1);
+    }
+    const newMonth = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+    onMonthChange(newMonth);
+  };
+
+  return (
+    <View style={styles.monthSelectorContainer}>
+      <TouchableOpacity
+        onPress={() => changeMonth('prev')}
+        style={[styles.monthArrow, { backgroundColor: isDark ? 'rgba(232, 180, 248, 0.15)' : 'rgba(212, 165, 165, 0.2)' }]}
+      >
+        <Text style={[styles.monthArrowText, { color: theme.accent[0] }]}>←</Text>
+      </TouchableOpacity>
+
+      <View style={[styles.monthDisplay, { backgroundColor: isDark ? 'rgba(232, 180, 248, 0.2)' : 'rgba(212, 165, 165, 0.25)' }]}>
+        <Text style={[styles.monthText, { color: theme.primaryText }]}>
+          {monthName} {year}
+        </Text>
+      </View>
+
+      <TouchableOpacity
+        onPress={() => changeMonth('next')}
+        style={[styles.monthArrow, { backgroundColor: isDark ? 'rgba(232, 180, 248, 0.15)' : 'rgba(212, 165, 165, 0.2)' }]}
+      >
+        <Text style={[styles.monthArrowText, { color: theme.accent[0] }]}>→</Text>
+      </TouchableOpacity>
+    </View>
+  );
+};
+
+// ============== 1. QUOTE BOX ==============
+
 const QuoteBox = ({ savingPurpose }: { savingPurpose?: SavingPurpose | null }) => {
   const { theme, isDark } = useTheme();
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -444,21 +609,21 @@ const QuoteBox = ({ savingPurpose }: { savingPurpose?: SavingPurpose | null }) =
 };
 
 // ============== 2. AIRPLANE PROGRESS ==============
+
 const AirplaneProgress = ({ 
   savingPercentage, 
   monthlyBudget, 
-  savingDuration 
+  savingDuration,
+  totalSpent
 }: { 
   savingPercentage?: number; 
   monthlyBudget?: number; 
-  savingDuration?: SavingDuration | null; 
+  savingDuration?: SavingDuration | null;
+  totalSpent: number;
 }) => {
   const { theme, isDark } = useTheme();
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const planeAnim = useRef(new Animated.Value(0)).current;
-  
-  // THIS IS SAMPLE DATA - will be replaced with real transaction data
-  const [spent] = useState(0);
 
   useEffect(() => {
     Animated.timing(fadeAnim, {
@@ -474,31 +639,22 @@ const AirplaneProgress = ({
       delay: 400,
       useNativeDriver: true,
     }).start();
-  }, []);
+  }, [totalSpent]);
 
-  // ✅ FIXED CALCULATION LOGIC
   const calculateProgress = () => {
-    // Guard: Need all inputs
     if (!savingPercentage || !monthlyBudget || !savingDuration) {
       return 0;
     }
     
-    // Clamp percentage to 0-100
     const clampedPercentage = Math.max(0, Math.min(100, savingPercentage));
-    
-    // Calculate monthly saving amount
     const monthlySavingAmount = (monthlyBudget * clampedPercentage) / 100;
     
-    // Calculate duration in months
     const value = savingDuration.value || 1;
     const unit = savingDuration.unit || 'years';
     const durationInMonths = unit === 'years' ? value * 12 : value;
     
-    // Calculate target
     const targetAmount = durationInMonths * monthlySavingAmount;
-    
-    // Current progress (month 1)
-    const currentSaved = monthlySavingAmount;
+    const currentSaved = Math.max(0, (monthlyBudget - totalSpent));
     
     return targetAmount > 0 ? Math.min((currentSaved / targetAmount) * 100, 100) : 0;
   };
@@ -509,11 +665,9 @@ const AirplaneProgress = ({
     outputRange: [0, (width - 80) * (progress / 100)],
   });
 
-  // Calculate actual savings amount
   const clampedPercentage = Math.max(0, Math.min(100, savingPercentage || 0));
-  const monthlySavingAmount = monthlyBudget ? (monthlyBudget * clampedPercentage) / 100 : 0;
-  
-  const remaining = (monthlyBudget || 0) - spent;
+  const currentSaved = Math.max(0, (monthlyBudget || 0) - totalSpent);
+  const remaining = (monthlyBudget || 0) - totalSpent;
   const isOverBudget = remaining < 0;
 
   return (
@@ -557,10 +711,19 @@ const AirplaneProgress = ({
           
           <View style={styles.budgetRow}>
             <Text style={[styles.budgetLabel, { color: theme.secondaryText }]}>
+              Total Spent:
+            </Text>
+            <Text style={[styles.budgetValue, { color: '#F44336' }]}>
+              ₹{Math.floor(totalSpent)}
+            </Text>
+          </View>
+
+          <View style={styles.budgetRow}>
+            <Text style={[styles.budgetLabel, { color: theme.secondaryText }]}>
               Amount Saved:
             </Text>
             <Text style={[styles.budgetValue, { color: '#4CAF50' }]}>
-              ₹{Math.floor(monthlySavingAmount)}
+              ₹{Math.floor(currentSaved)}
             </Text>
           </View>
 
@@ -569,7 +732,7 @@ const AirplaneProgress = ({
               {isOverBudget ? 'Over Budget:' : 'Remaining:'}
             </Text>
             <Text style={[styles.budgetValue, { color: isOverBudget ? '#F44336' : '#4CAF50' }]}>
-              {isOverBudget ? '-' : ''}₹{Math.abs(remaining)}
+              {isOverBudget ? '-' : ''}₹{Math.abs(Math.floor(remaining))}
             </Text>
           </View>
         </View>
@@ -587,18 +750,21 @@ const AirplaneProgress = ({
 };
 
 // ============== 3. CIRCULAR PROGRESS + CATEGORIES ==============
+
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
 const ProgressWithCategories = ({ 
   savingPercentage, 
   monthlyBudget,
   savingDuration,
-  categories
+  categories,
+  transactions
 }: { 
   savingPercentage?: number; 
   monthlyBudget?: number;
   savingDuration?: SavingDuration | null;
   categories: string[];
+  transactions: Transaction[];
 }) => {
   const { theme, isDark } = useTheme();
   const progressAnim = useRef(new Animated.Value(0)).current;
@@ -619,9 +785,8 @@ const ProgressWithCategories = ({
         useNativeDriver: false,
       }),
     ]).start();
-  }, []);
+  }, [transactions]);
 
-  // ✅ FIXED CALCULATION
   const clampedPercentage = Math.max(0, Math.min(100, savingPercentage || 0));
   const monthlySavingAmount = monthlyBudget ? (monthlyBudget * clampedPercentage) / 100 : 0;
   
@@ -633,23 +798,38 @@ const ProgressWithCategories = ({
   }
   
   const goalAmount = durationInMonths * monthlySavingAmount;
-  const currentSaved = monthlySavingAmount; // Month 1
+  const totalSpent = transactions.filter(t => t.affectsBudget && t.type === 'expense').reduce((sum, t) => sum + t.amount, 0);
+  const currentSaved = Math.max(0, (monthlyBudget || 0) - totalSpent);
   const percentage = goalAmount > 0 ? Math.min((currentSaved / goalAmount) * 100, 100) : 0;
 
-  const radius = 65;
-  const strokeWidth = 10;
-  const circumference = 2 * Math.PI * radius;
+  const progressRadius = 65;
+  const progressStrokeWidth = 10;
+  const progressCircumference = 2 * Math.PI * progressRadius;
   const animatedProgress = progressAnim.interpolate({
     inputRange: [0, 1],
-    outputRange: [circumference, circumference - (percentage / 100) * circumference],
+    outputRange: [progressCircumference, progressCircumference - (percentage / 100) * progressCircumference],
   });
 
-  // Sample category spending (will be replaced with real data)
-  const categoryData = categories.map((cat, idx) => ({
-    name: cat,
-    percentage: 0, // Will be calculated from real transactions
-    icon: ['🍔', '🚗', '🏠', '📺', '🛒'][idx % 5]
-  }));
+  // Calculate category spending
+  const categorySpending = new Map<string, { amount: number; count: number }>();
+  transactions.filter(t => t.affectsBudget && t.type === 'expense').forEach(t => {
+    const current = categorySpending.get(t.category) || { amount: 0, count: 0 };
+    categorySpending.set(t.category, {
+      amount: current.amount + t.amount,
+      count: current.count + 1
+    });
+  });
+
+  const totalSpending = Array.from(categorySpending.values()).reduce((sum, cat) => sum + cat.amount, 0);
+
+  const categoryData = categories.map((cat) => {
+    const data = categorySpending.get(cat) || { amount: 0, count: 0 };
+    return {
+      name: cat,
+      percentage: totalSpending > 0 ? (data.amount / totalSpending) * 100 : 0,
+      icon: getCategoryIcon(cat)
+    };
+  }).filter(cat => cat.percentage > 0);
 
   return (
     <Animated.View style={{ opacity: fadeAnim }}>
@@ -671,19 +851,19 @@ const ProgressWithCategories = ({
             <Circle
               cx="75"
               cy="75"
-              r={radius}
+              r={progressRadius}
               stroke={theme.cardBorder}
-              strokeWidth={strokeWidth}
+              strokeWidth={progressStrokeWidth}
               fill="none"
             />
             <AnimatedCircle
               cx="75"
               cy="75"
-              r={radius}
+              r={progressRadius}
               stroke={isDark ? "#E8B4F8" : "#D4A5A5"}
-              strokeWidth={strokeWidth}
+              strokeWidth={progressStrokeWidth}
               fill="none"
-              strokeDasharray={circumference}
+              strokeDasharray={progressCircumference}
               strokeDashoffset={animatedProgress}
               strokeLinecap="round"
               transform="rotate(-90 75 75)"
@@ -704,53 +884,83 @@ const ProgressWithCategories = ({
         </View>
 
         {categoryData.length > 0 && (
-          <>
+          <View>
             <Text style={[styles.categoriesTitle, { color: theme.primaryText }]}>
               Spending by Category
             </Text>
 
             {categoryData.map((cat, idx) => (
               <View key={idx} style={styles.categoryRow}>
-                <Text style={styles.categoryIcon}>{cat.icon}</Text>
-                <Text style={[styles.categoryName, { color: theme.primaryText }]}>
-                  {cat.name}
-                </Text>
-                <View style={styles.categoryBarContainer}>
-                  <View style={[styles.categoryBarBg, { backgroundColor: theme.cardBorder }]}>
-                    <View 
-                      style={[
-                        styles.categoryBarFill, 
-                        { 
-                          width: `${cat.percentage}%`,
-                          backgroundColor: isDark ? '#E8B4F8' : '#D4A5A5'
-                        }
-                      ]} 
-                    />
-                  </View>
+                <View style={styles.categoryIcon}>
+                  <Text>{cat.icon}</Text>
                 </View>
-                <Text style={[styles.categoryPercent, { color: theme.secondaryText }]}>
-                  {cat.percentage.toFixed(0)}%
-                </Text>
+                <View style={styles.categoryRowContent}>
+                  <Text style={[styles.categoryName, { color: theme.primaryText }]}>
+                    {cat.name}
+                  </Text>
+                  <View style={styles.categoryBarContainer}>
+                    <View style={[styles.categoryBarBg, { backgroundColor: theme.cardBorder }]}>
+                      <View 
+                        style={[
+                          styles.categoryBarFill, 
+                          { 
+                            width: `${cat.percentage}%`,
+                            backgroundColor: isDark ? '#E8B4F8' : '#D4A5A5'
+                          }
+                        ]} 
+                      />
+                    </View>
+                  </View>
+                  <Text style={[styles.categoryPercent, { color: theme.secondaryText }]}>
+                    {cat.percentage.toFixed(0)}%
+                  </Text>
+                </View>
               </View>
             ))}
-          </>
+          </View>
         )}
       </LinearGradient>
     </Animated.View>
   );
 };
 
+// Helper function for category icons
+const getCategoryIcon = (category: string): string => {
+  const icons: { [key: string]: string } = {
+    Food: '🍔',
+    Transport: '🚗',
+    Rent: '🏠',
+    Subscriptions: '📺',
+    Groceries: '🛒',
+    Family: '👨‍👩‍👧‍👦',
+    Utilities: '💡',
+    Fashion: '👗',
+    Healthcare: '⚕️',
+    Pets: '🐾',
+    Sneakers: '👟',
+    Gifts: '🎁',
+    Shopping: '🛍️',
+    Education: '🎓',
+    Travel: '✈️',
+  };
+  return icons[category] || '💰';
+};
+
 // ============== 4. MONTH PROGRESS + CALENDAR ==============
+
 const MonthCalendarSection = ({ 
   savingDuration,
-  monthlyBudget
+  monthlyBudget,
+  totalSpent,
+  selectedMonth
 }: { 
   savingDuration?: SavingDuration | null;
   monthlyBudget?: number;
+  totalSpent: number;
+  selectedMonth: string;
 }) => {
   const { theme, isDark } = useTheme();
   const fadeAnim = useRef(new Animated.Value(0)).current;
-  const [spent] = useState(0); // Will be calculated from real transactions
 
   useEffect(() => {
     Animated.timing(fadeAnim, {
@@ -761,10 +971,14 @@ const MonthCalendarSection = ({
     }).start();
   }, []);
 
-  const currentMonth = new Date().getMonth() + 1;
-  const currentDate = new Date().getDate();
-  const daysInMonth = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate();
-  const daysLeft = daysInMonth - currentDate;
+  const [year, month] = selectedMonth.split('-');
+  const currentDate = new Date();
+  const selectedDate = new Date(parseInt(year), parseInt(month) - 1, 1);
+  const isCurrentMonth = selectedMonth === getCurrentMonth();
+  
+  const currentDay = isCurrentMonth ? currentDate.getDate() : 1;
+  const daysInMonth = new Date(parseInt(year), parseInt(month), 0).getDate();
+  const daysLeft = isCurrentMonth ? daysInMonth - currentDay : daysInMonth;
 
   let totalMonths = 6;
   if (savingDuration) {
@@ -773,7 +987,7 @@ const MonthCalendarSection = ({
     totalMonths = unit === 'years' ? value * 12 : value;
   }
 
-  const remaining = (monthlyBudget || 0) - spent;
+  const remaining = (monthlyBudget || 0) - totalSpent;
 
   return (
     <Animated.View style={{ opacity: fadeAnim }}>
@@ -789,7 +1003,7 @@ const MonthCalendarSection = ({
           end={{ x: 1, y: 1 }}
         >
           <Text style={[styles.monthTitle, { color: theme.primaryText }]}>
-            Month {Math.min(currentMonth, totalMonths)} of {totalMonths}
+            Month {Math.min(parseInt(month), totalMonths)} of {totalMonths}
           </Text>
           <View style={styles.monthStats}>
             <Text style={[styles.monthLabel, { color: theme.secondaryText }]}>
@@ -804,7 +1018,7 @@ const MonthCalendarSection = ({
               Spent:
             </Text>
             <Text style={[styles.monthValue, { color: '#F44336' }]}>
-              ₹{spent}
+              ₹{Math.floor(totalSpent)}
             </Text>
           </View>
           <View style={styles.monthStats}>
@@ -812,7 +1026,7 @@ const MonthCalendarSection = ({
               Remaining:
             </Text>
             <Text style={[styles.monthValue, { color: remaining >= 0 ? '#4CAF50' : '#F44336' }]}>
-              ₹{remaining}
+              ₹{Math.floor(remaining)}
             </Text>
           </View>
         </LinearGradient>
@@ -829,7 +1043,7 @@ const MonthCalendarSection = ({
         >
           <Text style={styles.calendarEmoji}>📅</Text>
           <Text style={[styles.calendarDate, { color: theme.primaryText }]}>
-            Day {currentDate}
+            Day {currentDay}
           </Text>
           <Text style={[styles.calendarDaysLeft, { color: theme.secondaryText }]}>
             {daysLeft} days left
@@ -843,7 +1057,8 @@ const MonthCalendarSection = ({
   );
 };
 
-// ============== 5. SMS AND PDF IMPORT BOXES ==============
+// ============== 5. SMS AND CSV IMPORT BOXES ==============
+
 const ImportBoxes = () => {
   const { theme, isDark } = useTheme();
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -889,7 +1104,7 @@ const ImportBoxes = () => {
           </LinearGradient>
         </TouchableOpacity>
 
-        {/* PDF Import */}
+        {/* CSV Import */}
         <TouchableOpacity
           activeOpacity={0.8}
           onPress={() => router.push('/parsing/csv' as any)}
@@ -919,7 +1134,16 @@ const ImportBoxes = () => {
 };
 
 // ============== 6. CATEGORIES BREAKDOWN ==============
-const CategoriesBreakdown = ({ categories }: { categories: string[] }) => {
+
+const CategoriesBreakdown = ({ 
+  categories, 
+  transactions,
+  monthlyBudget
+}: { 
+  categories: string[]; 
+  transactions: Transaction[];
+  monthlyBudget?: number;
+}) => {
   const { theme, isDark } = useTheme();
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
@@ -932,29 +1156,26 @@ const CategoriesBreakdown = ({ categories }: { categories: string[] }) => {
     }).start();
   }, []);
 
-  const categoryIcons: { [key: string]: string } = {
-    Food: '🍔',
-    Transport: '🚗',
-    Rent: '🏠',
-    Subscriptions: '📺',
-    Groceries: '🛒',
-    Family: '👨‍👩‍👧‍👦',
-    Utilities: '💡',
-    Fashion: '👗',
-    Healthcare: '⚕️',
-    Pets: '🐾',
-    Sneakers: '👟',
-    Gifts: '🎁',
-  };
+  // Calculate category spending
+  const categorySpending = new Map<string, { amount: number; count: number }>();
+  transactions.filter(t => t.affectsBudget && t.type === 'expense').forEach(t => {
+    const current = categorySpending.get(t.category) || { amount: 0, count: 0 };
+    categorySpending.set(t.category, {
+      amount: current.amount + t.amount,
+      count: current.count + 1
+    });
+  });
 
-  // Will be replaced with real transaction data
-  const categoryData = categories.map((cat) => ({
-    name: cat,
-    amount: 0,
-    percentage: 0,
-    transactions: 0,
-    icon: categoryIcons[cat] || '💰'
-  }));
+  const categoryData: CategorySpending[] = categories.map((cat) => {
+    const data = categorySpending.get(cat) || { amount: 0, count: 0 };
+    return {
+      name: cat,
+      amount: data.amount,
+      percentage: monthlyBudget ? (data.amount / monthlyBudget) * 100 : 0,
+      transactions: data.count,
+      icon: getCategoryIcon(cat)
+    };
+  }).filter(cat => cat.amount > 0);
 
   return (
     <Animated.View style={{ opacity: fadeAnim }}>
@@ -973,7 +1194,7 @@ const CategoriesBreakdown = ({ categories }: { categories: string[] }) => {
           end={{ x: 1, y: 1 }}
         >
           <Text style={[styles.emptyStateText, { color: theme.secondaryText }]}>
-            No categories selected yet
+            No spending data yet. Import transactions to see breakdown.
           </Text>
         </LinearGradient>
       ) : (
@@ -1000,17 +1221,17 @@ const CategoriesBreakdown = ({ categories }: { categories: string[] }) => {
                     {cat.name}
                   </Text>
                   <Text style={[styles.categoryBreakdownTransactions, { color: theme.secondaryText }]}>
-                    {cat.transactions} transactions
+                    {cat.transactions} transaction{cat.transactions !== 1 ? 's' : ''}
                   </Text>
                 </View>
               </View>
               
               <View style={styles.categoryBreakdownRight}>
                 <Text style={[styles.categoryBreakdownAmount, { color: theme.primaryText }]}>
-                  ₹{cat.amount}
+                  ₹{Math.floor(cat.amount)}
                 </Text>
                 <Text style={[styles.categoryBreakdownPercent, { color: theme.secondaryText }]}>
-                  {cat.percentage}% of budget
+                  {cat.percentage.toFixed(1)}% of budget
                 </Text>
               </View>
             </View>
@@ -1021,7 +1242,7 @@ const CategoriesBreakdown = ({ categories }: { categories: string[] }) => {
                   style={[
                     styles.categoryBreakdownBarFill, 
                     { 
-                      width: `${cat.percentage}%`,
+                      width: `${Math.min(cat.percentage, 100)}%`,
                       backgroundColor: isDark ? '#E8B4F8' : '#D4A5A5'
                     }
                   ]} 
@@ -1036,7 +1257,8 @@ const CategoriesBreakdown = ({ categories }: { categories: string[] }) => {
 };
 
 // ============== 7. RECENT TRANSACTIONS ==============
-const RecentTransactionsSection = () => {
+
+const RecentTransactionsSection = ({ transactions }: { transactions: Transaction[] }) => {
   const { theme, isDark } = useTheme();
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
@@ -1049,20 +1271,10 @@ const RecentTransactionsSection = () => {
     }).start();
   }, []);
 
-  const categoryIcons: { [key: string]: string } = {
-    Food: '🍔',
-    Transport: '🚗',
-    Rent: '🏠',
-    Subscriptions: '📺',
-    Groceries: '🛒',
-    Family: '👨‍👩‍👧‍👦',
-    Utilities: '💡',
-    Fashion: '👗',
-    Healthcare: '⚕️',
-    Pets: '🐾',
-    Sneakers: '👟',
-    Gifts: '🎁',
-  };
+  // Get latest 5 transactions
+  const recentTransactions = transactions
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+    .slice(0, 5);
 
   return (
     <Animated.View style={{ opacity: fadeAnim }}>
@@ -1079,59 +1291,66 @@ const RecentTransactionsSection = () => {
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
       >
-        {sampleTransactions.map((transaction, index) => (
-          <View 
-            key={transaction.id} 
-            style={[
-              styles.transactionItem,
-              index !== sampleTransactions.length - 1 && styles.transactionBorder
-            ]}
-          >
-            <View style={[styles.transactionIcon, { 
-              backgroundColor: isDark ? 'rgba(232, 180, 248, 0.25)' : 'rgba(212, 165, 165, 0.3)' 
-            }]}>
-              <Text style={styles.transactionIconEmoji}>
-                {transaction.isPlaceholder ? '📝' : categoryIcons[transaction.category] || '💰'}
-              </Text>
-            </View>
-            
-            <View style={styles.transactionDetails}>
-              <Text style={[styles.transactionTitle, { color: theme.primaryText }]}>
-                {transaction.title}
-              </Text>
-              <Text style={[styles.transactionDate, { color: theme.secondaryText }]}>
-                {transaction.date}
-              </Text>
-            </View>
-            
-            <View style={styles.transactionRight}>
-              {!transaction.isPlaceholder && (
-                <Text style={[styles.transactionAmount, { color: '#F44336' }]}>
-                  -₹{transaction.amount}
-                </Text>
-              )}
-              <View style={[styles.transactionBadge, { 
-                backgroundColor: isDark ? 'rgba(232, 180, 248, 0.2)' : 'rgba(212, 165, 165, 0.25)' 
+        {recentTransactions.length === 0 ? (
+          <View style={styles.noDataContainer}>
+            <Text style={[styles.noDataText, { color: theme.secondaryText }]}>
+              No transactions yet. Import SMS or bank statements to see your spending.
+            </Text>
+          </View>
+        ) : (
+          recentTransactions.map((transaction, index) => (
+            <View 
+              key={transaction.id} 
+              style={[
+                styles.transactionItem,
+                index !== recentTransactions.length - 1 && styles.transactionBorder
+              ]}
+            >
+              <View style={[styles.transactionIcon, { 
+                backgroundColor: isDark ? 'rgba(232, 180, 248, 0.25)' : 'rgba(212, 165, 165, 0.3)' 
               }]}>
-                <Text style={[styles.transactionBadgeText, { color: theme.secondaryText }]}>
-                  {transaction.category}
+                <Text style={styles.transactionIconEmoji}>
+                  {getCategoryIcon(transaction.category)}
                 </Text>
               </View>
+              
+              <View style={styles.transactionDetails}>
+                <Text style={[styles.transactionTitle, { color: theme.primaryText }]}>
+                  {transaction.merchantName}
+                </Text>
+                <Text style={[styles.transactionDate, { color: theme.secondaryText }]}>
+                  {new Date(transaction.date).toLocaleDateString('en-IN', {
+                    day: 'numeric',
+                    month: 'short',
+                    year: 'numeric'
+                  })}
+                </Text>
+              </View>
+              
+              <View style={styles.transactionRight}>
+                <Text style={[styles.transactionAmount, { 
+                  color: transaction.type === 'income' ? '#4CAF50' : '#F44336' 
+                }]}>
+                  {transaction.type === 'income' ? '+' : '-'}₹{Math.floor(transaction.amount)}
+                </Text>
+                <View style={[styles.transactionBadge, { 
+                  backgroundColor: isDark ? 'rgba(232, 180, 248, 0.2)' : 'rgba(212, 165, 165, 0.25)' 
+                }]}>
+                  <Text style={[styles.transactionBadgeText, { color: theme.secondaryText }]}>
+                    {transaction.category}
+                  </Text>
+                </View>
+              </View>
             </View>
-          </View>
-        ))}
-
-        <View style={styles.noDataContainer}>
-          <Text style={[styles.noDataText, { color: theme.secondaryText }]}>
-            No real transactions yet. Import SMS or bank statements to see your spending.
-          </Text>
-        </View>
+          ))
+        )}
       </LinearGradient>
     </Animated.View>
   );
 };
 
 // ============== STYLES ==============
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -1140,6 +1359,11 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    fontWeight: '600',
   },
   scrollView: {
     flex: 1,
@@ -1169,6 +1393,39 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     letterSpacing: 0.5,
     marginTop: 24,
+  },
+  // Month Selector Styles
+  monthSelectorContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 20,
+    gap: 12,
+  },
+  monthArrow: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  monthArrowText: {
+    fontSize: 20,
+    fontWeight: '700',
+  },
+  monthDisplay: {
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  monthText: {
+    fontSize: 16,
+    fontWeight: '700',
+    letterSpacing: 0.3,
   },
   tabBar: { 
     position: 'absolute',
@@ -1357,6 +1614,11 @@ const styles = StyleSheet.create({
   categoryIcon: {
     fontSize: 20,
     marginRight: 12,
+  },
+  categoryRowContent: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   categoryName: {
     fontSize: 14,
