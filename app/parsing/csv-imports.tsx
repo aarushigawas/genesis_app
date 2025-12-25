@@ -1,15 +1,17 @@
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { collection, doc, getDoc, getDocs, query, serverTimestamp, setDoc, where } from 'firebase/firestore';
+// app/parsing/csv-imports.tsx
+// UPDATED: Shows "CSV amount / Total amount" in category circles
+
+import { useRouter } from 'expo-router';
+import { collection, doc, getDoc, getDocs, serverTimestamp, setDoc, updateDoc } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
-  Alert,
-  Animated,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    Alert,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
 } from 'react-native';
 import { auth, db } from '../../src2/firebase/config';
 
@@ -17,7 +19,7 @@ import { auth, db } from '../../src2/firebase/config';
 // TYPES
 // ============================================================================
 
-interface ParsedTransaction {
+interface FirestoreTransaction {
   amount: number;
   type: 'expense' | 'income';
   date: string;
@@ -25,289 +27,416 @@ interface ParsedTransaction {
   year: number;
   merchantName: string;
   category: string;
-  source: 'csv' | 'pdf';
   affectsBudget: boolean;
+  createdAt?: any; // Firestore Timestamp
 }
 
 interface CategorySummary {
   category: string;
-  count: number;
+  spent: number;
   total: number;
-  type: 'expense' | 'income' | 'mixed';
-  affectsBudget: boolean;
+  csvAmount: number; // NEW: Amount from this CSV import only
+}
+
+interface MonthSummary {
+  month: string;
+  monthLabel: string;
+  transactions: FirestoreTransaction[];
+  totalIncome: number;
+  totalExpenses: number;
+  budgetImpactExpenses: number;
+  categorySummaries: CategorySummary[];
+}
+
+interface UserOnboardingData {
+  monthlyIncome: number;
+  monthlyBudget: number;
+  currentBankBalance: number;
+  savingAmount: number;
+  savingDuration: number;
 }
 
 // ============================================================================
-// CALCULATE CATEGORY SUMMARIES
+// CATEGORY COLORS
 // ============================================================================
 
-function calculateCategorySummaries(transactions: ParsedTransaction[]): CategorySummary[] {
-  const categoryMap: { [key: string]: CategorySummary } = {};
+const CATEGORY_COLORS: Record<string, string> = {
+  Food: '#FF6B6B',
+  Shopping: '#4ECDC4',
+  Groceries: '#95E1D3',
+  Rent: '#F38181',
+  Travel: '#AA96DA',
+  Transport: '#FCBAD3',
+  Utilities: '#FFD3B6',
+  Subscriptions: '#A8D8EA',
+  Healthcare: '#FF8B94',
+  Education: '#FFD3B6',
+  Transfers: '#DCEDC1',
+  Income: '#30D158',
+  Gifts: '#FFA8A8',
+  Other: '#8E8E93',
+};
+
+// ============================================================================
+// READ TRANSACTIONS FROM FIRESTORE
+// ============================================================================
+
+async function readTransactionsFromFirestore(): Promise<FirestoreTransaction[]> {
+  const user = auth.currentUser;
+  if (!user) throw new Error('User not authenticated');
+  
+  try {
+    const transactionsRef = collection(db, 'transactions', user.uid, 'items');
+    const snapshot = await getDocs(transactionsRef);
+    
+    const transactions: FirestoreTransaction[] = [];
+    
+    snapshot.forEach((doc) => {
+      const data = doc.data();
+      transactions.push({
+        amount: data.amount,
+        type: data.type,
+        date: data.date,
+        month: data.month,
+        year: data.year,
+        merchantName: data.merchantName,
+        category: data.category,
+        affectsBudget: data.affectsBudget,
+        createdAt: data.createdAt, // Include timestamp
+      });
+    });
+    
+    console.log(`✅ Read ${transactions.length} transactions from Firestore`);
+    return transactions;
+  } catch (error) {
+    console.error('Error reading transactions:', error);
+    throw error;
+  }
+}
+
+// ============================================================================
+// READ USER ONBOARDING DATA
+// ============================================================================
+
+async function readUserOnboardingData(): Promise<UserOnboardingData> {
+  const user = auth.currentUser;
+  if (!user) throw new Error('User not authenticated');
+  
+  try {
+    const userRef = doc(db, 'userOnboardingData', user.uid);
+    const userSnap = await getDoc(userRef);
+    
+    if (!userSnap.exists()) {
+      throw new Error('User onboarding data not found');
+    }
+    
+    const data = userSnap.data();
+    return {
+      monthlyIncome: data.monthlyIncome || 0,
+      monthlyBudget: data.monthlyBudget || 0,
+      currentBankBalance: data.currentBankBalance || 0,
+      savingAmount: data.savingAmount || 0,
+      savingDuration: data.savingDuration || 0,
+    };
+  } catch (error) {
+    console.error('Error reading user data:', error);
+    throw error;
+  }
+}
+
+// ============================================================================
+// CALCULATE MONTH SUMMARIES - UPDATED TO SPLIT CSV vs TOTAL AMOUNTS
+// ============================================================================
+
+function calculateMonthSummaries(
+  transactions: FirestoreTransaction[]
+): MonthSummary[] {
+  const monthMap: Record<string, FirestoreTransaction[]> = {};
   
   transactions.forEach(txn => {
-    if (!categoryMap[txn.category]) {
-      categoryMap[txn.category] = {
-        category: txn.category,
-        count: 0,
-        total: 0,
-        type: txn.type,
-        affectsBudget: txn.affectsBudget,
-      };
+    if (!monthMap[txn.month]) {
+      monthMap[txn.month] = [];
     }
-    
-    categoryMap[txn.category].count++;
-    categoryMap[txn.category].total += txn.amount;
-    
-    if (categoryMap[txn.category].type !== txn.type) {
-      categoryMap[txn.category].type = 'mixed';
-    }
+    monthMap[txn.month].push(txn);
   });
   
-  return Object.values(categoryMap).sort((a, b) => b.total - a.total);
+  const summaries: MonthSummary[] = [];
+  
+  // Calculate cutoff time: 5 minutes ago
+  const cutoffTime = Date.now() - (5 * 60 * 1000);
+  
+  Object.entries(monthMap)
+    .sort((a, b) => b[0].localeCompare(a[0]))
+    .forEach(([month, txns]) => {
+      const [year, monthNum] = month.split('-');
+      const date = new Date(parseInt(year), parseInt(monthNum) - 1, 1);
+      const monthLabel = date.toLocaleDateString('en-US', { 
+        month: 'long', 
+        year: 'numeric' 
+      });
+      
+      const totalIncome = txns
+        .filter(t => t.type === 'income')
+        .reduce((sum, t) => sum + t.amount, 0);
+      
+      const totalExpenses = txns
+        .filter(t => t.type === 'expense')
+        .reduce((sum, t) => sum + t.amount, 0);
+      
+      const budgetImpactExpenses = txns
+        .filter(t => t.type === 'expense' && t.affectsBudget)
+        .reduce((sum, t) => sum + t.amount, 0);
+      
+      // Calculate category summaries with CSV-only amounts
+      const categoryMap: Record<string, { total: number; csv: number }> = {};
+      
+      txns.forEach(txn => {
+        if (txn.type === 'expense') {
+          if (!categoryMap[txn.category]) {
+            categoryMap[txn.category] = { total: 0, csv: 0 };
+          }
+          
+          // Add to total
+          categoryMap[txn.category].total += txn.amount;
+          
+          // Check if this is from recent CSV import (created in last 5 minutes)
+          const isNewCSV = txn.createdAt && 
+            txn.createdAt.toMillis && 
+            txn.createdAt.toMillis() > cutoffTime;
+          
+          if (isNewCSV) {
+            categoryMap[txn.category].csv += txn.amount;
+          }
+        }
+      });
+      
+      const categorySummaries: CategorySummary[] = Object.entries(categoryMap)
+        .map(([category, amounts]) => ({
+          category,
+          spent: amounts.total,
+          total: amounts.total,
+          csvAmount: amounts.csv, // NEW: Amount from CSV import
+        }))
+        .sort((a, b) => b.spent - a.spent);
+      
+      summaries.push({
+        month,
+        monthLabel,
+        transactions: txns,
+        totalIncome,
+        totalExpenses,
+        budgetImpactExpenses,
+        categorySummaries,
+      });
+    });
+  
+  return summaries;
 }
 
 // ============================================================================
-// MAIN COMPONENT
+// WRITE TO USER BUDGETS - SEPARATE FUNCTION FOR EACH MONTH
+// ============================================================================
+
+async function writeMonthBudgetToFirestore(
+  month: string,
+  monthData: MonthSummary,
+  userData: UserOnboardingData
+): Promise<void> {
+  const user = auth.currentUser;
+  if (!user) throw new Error('User not authenticated');
+  
+  try {
+    const monthRef = doc(db, 'userBudgets', user.uid, 'months', month);
+    const monthSnap = await getDoc(monthRef);
+    
+    let startingBudget = userData.monthlyBudget;
+    let existingCategoryTotals: Record<string, number> = {};
+    
+    if (monthSnap.exists()) {
+      const existingData = monthSnap.data();
+      startingBudget = existingData.startingBudget || userData.monthlyBudget;
+      existingCategoryTotals = existingData.categories || {};
+    }
+    
+    // Update category totals
+    const updatedCategories: Record<string, number> = { ...existingCategoryTotals };
+    monthData.categorySummaries.forEach(cat => {
+      if (!updatedCategories[cat.category]) {
+        updatedCategories[cat.category] = 0;
+      }
+      updatedCategories[cat.category] += cat.spent;
+    });
+    
+    const totalExpenses = Object.values(updatedCategories).reduce((sum, val) => sum + val, 0);
+    const newBudget = startingBudget - monthData.budgetImpactExpenses;
+    
+    // Calculate savings reduction if needed
+    let savingsReduction = 0;
+    if (newBudget < 0) {
+      savingsReduction = Math.abs(newBudget);
+    }
+    
+    const budgetData = {
+      month,
+      startingBudget,
+      totalExpenses,
+      budgetImpactExpenses: monthData.budgetImpactExpenses,
+      newBudget,
+      savingsReduction,
+      categories: updatedCategories,
+      totalIncome: monthData.totalIncome,
+      updatedAt: serverTimestamp(),
+    };
+    
+    await setDoc(monthRef, budgetData, { merge: true });
+    console.log(`✅ Written budget data for ${month}`);
+  } catch (error) {
+    console.error(`Error writing budget for ${month}:`, error);
+    throw error;
+  }
+}
+
+// ============================================================================
+// UPDATE GLOBAL BANK BALANCE
+// ============================================================================
+
+async function updateGlobalBankBalance(
+  allTransactions: FirestoreTransaction[],
+  currentBalance: number
+): Promise<number> {
+  const user = auth.currentUser;
+  if (!user) throw new Error('User not authenticated');
+  
+  try {
+    const totalIncome = allTransactions
+      .filter(t => t.type === 'income')
+      .reduce((sum, t) => sum + t.amount, 0);
+    
+    const totalExpenses = allTransactions
+      .filter(t => t.type === 'expense')
+      .reduce((sum, t) => sum + t.amount, 0);
+    
+    const newBalance = currentBalance + totalIncome - totalExpenses;
+    
+    const userRef = doc(db, 'userOnboardingData', user.uid);
+    await updateDoc(userRef, {
+      currentBankBalance: newBalance,
+      updatedAt: serverTimestamp(),
+    });
+    
+    console.log(`✅ Updated bank balance: ${newBalance}`);
+    return newBalance;
+  } catch (error) {
+    console.error('Error updating bank balance:', error);
+    throw error;
+  }
+}
+
+// ============================================================================
+// COMPONENT
 // ============================================================================
 
 export default function CSVImportsScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams();
   
-  // Get month from params or default to current month
-  const selectedMonth = (params.month as string) || new Date().toISOString().slice(0, 7);
-  
-  // State
-  const [transactions, setTransactions] = useState<ParsedTransaction[]>([]);
-  const [categorySummaries, setCategorySummaries] = useState<CategorySummary[]>([]);
-  const [totalIncome, setTotalIncome] = useState(0);
-  const [totalExpenses, setTotalExpenses] = useState(0);
-  const [budgetAffectingExpenses, setBudgetAffectingExpenses] = useState(0);
-  
-  // Budget from Firebase
-  const [currentBudget, setCurrentBudget] = useState<number>(0);
-  const [newBudget, setNewBudget] = useState<number | null>(null);
-  
-  // UI state
-  const [userChoice, setUserChoice] = useState<'yes' | 'no' | null>(null);
-  const [showCalculations, setShowCalculations] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [applying, setApplying] = useState(false);
+  const [monthSummaries, setMonthSummaries] = useState<MonthSummary[]>([]);
+  const [userData, setUserData] = useState<UserOnboardingData | null>(null);
+  const [currentMonthSummary, setCurrentMonthSummary] = useState<MonthSummary | null>(null);
+  const [newBankBalance, setNewBankBalance] = useState(0);
   
-  const [calculationHeight] = useState(new Animated.Value(0));
+  const currentMonth = new Date().toISOString().substring(0, 7);
   
   // ============================================================================
-  // FETCH TRANSACTIONS FROM FIRESTORE
+  // LOAD DATA ON MOUNT - NO PARAMS, READ FROM FIRESTORE
   // ============================================================================
   
   useEffect(() => {
-    fetchTransactionsFromFirestore();
-  }, [selectedMonth]);
+    loadData();
+  }, []);
   
-  const fetchTransactionsFromFirestore = async () => {
+  const loadData = async () => {
     try {
       setLoading(true);
       
-      const user = auth.currentUser;
-      if (!user) {
-        Alert.alert('Error', 'You must be logged in to view transactions.');
-        router.replace('/(tabs)');
+      // Read user data
+      const userDataResult = await readUserOnboardingData();
+      setUserData(userDataResult);
+      
+      // Read transactions from Firestore
+      const transactions = await readTransactionsFromFirestore();
+      
+      if (transactions.length === 0) {
+        Alert.alert('No Transactions', 'No transactions found in Firestore.');
+        router.back();
         return;
       }
       
-      console.log('🔍 Fetching transactions for month:', selectedMonth);
-      console.log('🔍 User ID:', user.uid);
+      // Calculate summaries per month
+      const summaries = calculateMonthSummaries(transactions);
+      setMonthSummaries(summaries);
       
-      // Fetch transactions for selected month
-      const itemsRef = collection(db, 'transactions', user.uid, 'items');
-      const q = query(itemsRef, where('month', '==', selectedMonth));
+      // Find current month summary
+      const currentSummary = summaries.find(s => s.month === currentMonth);
+      setCurrentMonthSummary(currentSummary || null);
       
-      const querySnapshot = await getDocs(q);
-      const fetchedTransactions: ParsedTransaction[] = [];
+      // Calculate new bank balance
+      const newBalance = userDataResult.currentBankBalance +
+        summaries.reduce((sum, s) => sum + s.totalIncome, 0) -
+        summaries.reduce((sum, s) => sum + s.totalExpenses, 0);
+      setNewBankBalance(newBalance);
       
-      console.log('📦 Documents found:', querySnapshot.size);
+      setLoading(false);
+    } catch (error) {
+      console.error('Error loading data:', error);
+      Alert.alert('Error', 'Failed to load data. Please try again.');
+      setLoading(false);
+      router.back();
+    }
+  };
+  
+  // ============================================================================
+  // APPLY UPDATES
+  // ============================================================================
+  
+  const handleApply = async () => {
+    if (!userData) {
+      Alert.alert('Error', 'User data not loaded');
+      return;
+    }
+    
+    try {
+      setApplying(true);
       
-      querySnapshot.forEach((doc) => {
-        const data = doc.data();
-        console.log('📄 Transaction:', data);
-        
-        fetchedTransactions.push({
-          amount: data.amount || 0,
-          type: data.type || 'expense',
-          date: data.date || new Date().toISOString(),
-          month: data.month || selectedMonth,
-          year: data.year || new Date().getFullYear(),
-          merchantName: data.merchantName || 'Unknown',
-          category: data.category || 'Other',
-          source: data.source || 'csv',
-          affectsBudget: data.affectsBudget !== undefined ? data.affectsBudget : true,
-        });
-      });
-      
-      console.log('✅ Fetched transactions:', fetchedTransactions.length);
-      
-      if (fetchedTransactions.length === 0) {
-        Alert.alert(
-          'No Transactions',
-          `No transactions found for ${new Date(selectedMonth + '-01').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}. They may have been saved to a different month.`,
-          [{ text: 'OK', onPress: () => router.replace('/(tabs)') }]
+      // Write budget data for each month
+      for (const monthSummary of monthSummaries) {
+        await writeMonthBudgetToFirestore(
+          monthSummary.month,
+          monthSummary,
+          userData
         );
-        setLoading(false);
-        return;
       }
       
-      setTransactions(fetchedTransactions);
-      setLoading(false);
+      // Update global bank balance
+      const allTransactions = monthSummaries.flatMap(s => s.transactions);
+      await updateGlobalBankBalance(allTransactions, userData.currentBankBalance);
+      
+      setApplying(false);
+      
+      // Navigate to success screen
+    router.push({
+      pathname: '/parsing/csv-confirm',
+      params: {
+        transactionCount: allTransactions.length.toString(),
+        success: 'true',
+    },
+});
       
     } catch (error) {
-      console.error('❌ Error fetching transactions:', error);
-      Alert.alert('Error', 'Failed to load transactions. Please try again.');
-      setLoading(false);
-    }
-  };
-  
-  // ============================================================================
-  // FETCH CURRENT BUDGET FROM FIREBASE
-  // ============================================================================
-  
-  useEffect(() => {
-    fetchCurrentBudget();
-  }, []);
-  
-  const fetchCurrentBudget = async () => {
-    try {
-      const user = auth.currentUser;
-      if (!user) return;
-      
-      const userDocRef = doc(db, 'userOnboardingData', user.uid);
-      const userDoc = await getDoc(userDocRef);
-      
-      if (userDoc.exists()) {
-        const data = userDoc.data();
-        setCurrentBudget(data.monthlyBudget || 0);
-      } else {
-        setCurrentBudget(50000); // Fallback
-      }
-    } catch (error) {
-      console.error('Error fetching budget:', error);
-      setCurrentBudget(50000); // Fallback
-    }
-  };
-  
-  // ============================================================================
-  // CALCULATE TOTALS FROM TRANSACTIONS STATE
-  // ============================================================================
-  
-  useEffect(() => {
-    if (transactions.length === 0) return;
-    
-    let income = 0;
-    let expenses = 0;
-    let budgetExpenses = 0;
-    
-    transactions.forEach(txn => {
-      if (txn.type === 'income') {
-        income += txn.amount;
-      } else if (txn.type === 'expense') {
-        expenses += txn.amount;
-        if (txn.affectsBudget) {
-          budgetExpenses += txn.amount;
-        }
-      }
-    });
-    
-    setTotalIncome(income);
-    setTotalExpenses(expenses);
-    setBudgetAffectingExpenses(budgetExpenses);
-    
-    // Calculate category summaries
-    const summaries = calculateCategorySummaries(transactions);
-    setCategorySummaries(summaries);
-    
-  }, [transactions]);
-  
-  // ============================================================================
-  // CALCULATE NEW BUDGET
-  // ============================================================================
-  
-  useEffect(() => {
-    if (currentBudget !== null && userChoice === 'yes') {
-      // Formula: newBudget = currentBudget + totalIncome - budgetAffectingExpenses
-      const calculated = currentBudget + totalIncome - budgetAffectingExpenses;
-      setNewBudget(calculated);
-    }
-  }, [currentBudget, userChoice, totalIncome, budgetAffectingExpenses]);
-  
-  // ============================================================================
-  // HANDLE USER CHOICE: YES (Add to Budget)
-  // ============================================================================
-  
-  const handleYes = () => {
-    setUserChoice('yes');
-    setShowCalculations(true);
-    
-    Animated.timing(calculationHeight, {
-      toValue: 1,
-      duration: 400,
-      useNativeDriver: false,
-    }).start();
-  };
-  
-  // ============================================================================
-  // HANDLE USER CHOICE: NO (Don't Add to Budget)
-  // ============================================================================
-  
-  const handleNo = () => {
-    setUserChoice('no');
-    
-    Alert.alert(
-      'Import Complete',
-      `${transactions.length} transactions imported without budget update.`,
-      [
-        {
-          text: 'OK',
-          onPress: () => router.replace('/(tabs)'),
-        },
-      ]
-    );
-  };
-  
-  // ============================================================================
-  // HANDLE FINAL CONFIRMATION
-  // ============================================================================
-  
-  const handleConfirm = async () => {
-    if (!newBudget) return;
-    
-    try {
-      setSaving(true);
-      
-      const user = auth.currentUser;
-      if (!user) throw new Error('Not authenticated');
-      
-      // Update budget in Firebase
-      const userDocRef = doc(db, 'userOnboardingData', user.uid);
-      await setDoc(userDocRef, {
-        monthlyBudget: newBudget,
-        updatedAt: serverTimestamp(),
-      }, { merge: true });
-      
-      setSaving(false);
-      
-      Alert.alert(
-        'Success',
-        `Budget updated from ₹${currentBudget.toLocaleString('en-IN')} to ₹${newBudget.toLocaleString('en-IN')}`,
-        [
-          {
-            text: 'OK',
-            onPress: () => router.replace('/(tabs)'),
-          },
-        ]
-      );
-    } catch (error) {
-      setSaving(false);
-      console.error('Budget update error:', error);
-      Alert.alert('Error', 'Failed to update budget. Please try again.');
+      setApplying(false);
+      console.error('Error applying updates:', error);
+      Alert.alert('Error', 'Failed to apply updates. Please try again.');
     }
   };
   
@@ -318,210 +447,239 @@ export default function CSVImportsScreen() {
   if (loading) {
     return (
       <View style={styles.container}>
-        <View style={styles.centerContent}>
+        <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#007AFF" />
-          <Text style={styles.loadingText}>Loading transactions...</Text>
+          <Text style={styles.loadingText}>Loading your data...</Text>
+        </View>
+      </View>
+    );
+  }
+  
+  if (!userData || !currentMonthSummary) {
+    return (
+      <View style={styles.container}>
+        <View style={styles.errorContainer}>
+          <Text style={styles.errorText}>No data available</Text>
+          <TouchableOpacity
+            style={styles.retryButton}
+            onPress={() => router.back()}
+          >
+            <Text style={styles.retryButtonText}>Go Back</Text>
+          </TouchableOpacity>
         </View>
       </View>
     );
   }
   
   // ============================================================================
-  // RENDER
+  // CALCULATE CURRENT MONTH VALUES
+  // ============================================================================
+  
+  const newBudget = userData.monthlyBudget - currentMonthSummary.budgetImpactExpenses;
+  const savingsReduction = newBudget < 0 ? Math.abs(newBudget) : 0;
+  const newSavings = userData.savingAmount - savingsReduction;
+  
+  // ============================================================================
+  // RENDER: MAIN UI
   // ============================================================================
   
   return (
     <View style={styles.container}>
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+          <Text style={styles.backButtonText}>← Back</Text>
+        </TouchableOpacity>
+        <Text style={styles.title}>Review Changes</Text>
+        <Text style={styles.subtitle}>
+          See how these transactions will update your budget
+        </Text>
+      </View>
+      
       <ScrollView style={styles.content}>
         
-        {/* Header */}
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.replace('/(tabs)')} style={styles.backButton}>
-            <Text style={styles.backButtonText}>← Back</Text>
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Import Summary</Text>
-          <Text style={styles.headerSubtitle}>
-            {transactions.length} transaction{transactions.length !== 1 ? 's' : ''} for {new Date(selectedMonth + '-01').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
-          </Text>
-        </View>
-        
-        {/* Category Summary Circles */}
+        {/* Current Month Budget Impact */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Breakdown by Category</Text>
+          <Text style={styles.sectionTitle}>
+            {currentMonthSummary.monthLabel} Budget
+          </Text>
           
-          <View style={styles.circleGrid}>
-            {categorySummaries.map((summary, idx) => (
-                <View key={idx} style={styles.circleCard}>
-                  <View style={[
-                    styles.circle,
-                    summary.type === 'income' && styles.circleIncome,
-                    summary.type === 'expense' && styles.circleExpense,
-                    !summary.affectsBudget && styles.circleTransfer,
-                  ]}>
-                    <Text style={styles.circleCategoryName}>
-                      {summary.category.toUpperCase()}
-                    </Text>
-                    <Text style={[
-                      styles.circleAmount,
-                      summary.type === 'income' && styles.circleAmountIncome,
-                    ]}>
-                      ₹{summary.total.toLocaleString('en-IN')}
-                    </Text>
-                    <Text style={styles.circleCount}>
-                      {summary.count} txn{summary.count !== 1 ? 's' : ''}
-                    </Text>
-                    {!summary.affectsBudget && (
-                      <Text style={styles.noBudgetImpact}>No budget impact</Text>
+          <View style={styles.budgetCard}>
+            <View style={styles.budgetRow}>
+              <Text style={styles.budgetLabel}>Starting Budget</Text>
+              <Text style={styles.budgetValue}>₹{userData.monthlyBudget.toFixed(2)}</Text>
+            </View>
+            
+            <View style={styles.budgetRow}>
+              <Text style={styles.budgetLabel}>New Expenses</Text>
+              <Text style={[styles.budgetValue, styles.expenseValue]}>
+                -₹{currentMonthSummary.budgetImpactExpenses.toFixed(2)}
+              </Text>
+            </View>
+            
+            <View style={styles.divider} />
+            
+            <View style={styles.budgetRow}>
+              <Text style={styles.budgetLabelBold}>Updated Budget</Text>
+              <Text style={[
+                styles.budgetValueBold,
+                newBudget < 0 && styles.negativeValue
+              ]}>
+                ₹{newBudget.toFixed(2)}
+              </Text>
+            </View>
+            
+            {newBudget < 0 && (
+              <View style={styles.warningBox}>
+                <Text style={styles.warningText}>
+                  ⚠️ Budget exceeded. ₹{savingsReduction.toFixed(2)} will be deducted from savings.
+                </Text>
+              </View>
+            )}
+          </View>
+          
+          {/* Category breakdown - UPDATED TO SHOW CSV / TOTAL */}
+          {currentMonthSummary.categorySummaries.length > 0 && (
+            <View style={styles.categorySection}>
+              <Text style={styles.categoryTitle}>Spending by Category</Text>
+              <View style={styles.categoryGrid}>
+                {currentMonthSummary.categorySummaries.map((cat, idx) => (
+                  <View
+                    key={idx}
+                    style={[
+                      styles.categoryCircle,
+                      { backgroundColor: CATEGORY_COLORS[cat.category] || '#8E8E93' }
+                    ]}
+                  >
+                    <Text style={styles.categoryName}>{cat.category.toUpperCase()}</Text>
+                    {cat.csvAmount > 0 ? (
+                      <Text style={styles.categoryAmount}>
+                        ₹{cat.csvAmount.toFixed(0)} / ₹{cat.total.toFixed(0)}
+                      </Text>
+                    ) : (
+                      <Text style={styles.categoryAmount}>₹{cat.total.toFixed(0)}</Text>
                     )}
                   </View>
+                ))}
+              </View>
+            </View>
+          )}
+        </View>
+        
+        {/* Savings Update */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Savings</Text>
+          
+          <View style={styles.savingsCard}>
+            <View style={styles.budgetRow}>
+              <Text style={styles.budgetLabel}>Current Savings</Text>
+              <Text style={styles.budgetValue}>₹{userData.savingAmount.toFixed(2)}</Text>
+            </View>
+            
+            {savingsReduction > 0 && (
+              <View style={styles.budgetRow}>
+                <Text style={styles.budgetLabel}>Reduction</Text>
+                <Text style={[styles.budgetValue, styles.expenseValue]}>
+                  -₹{savingsReduction.toFixed(2)}
+                </Text>
+              </View>
+            )}
+            
+            <View style={styles.divider} />
+            
+            <View style={styles.budgetRow}>
+              <Text style={styles.budgetLabelBold}>Updated Savings</Text>
+              <Text style={[
+                styles.budgetValueBold,
+                newSavings < 0 && styles.negativeValue
+              ]}>
+                ₹{newSavings.toFixed(2)}
+              </Text>
+            </View>
+            
+            {newSavings < 0 && (
+              <View style={styles.warningBox}>
+                <Text style={styles.warningText}>
+                  ⚠️ Savings depleted. Consider adding another month or adjusting budget.
+                </Text>
+              </View>
+            )}
+          </View>
+        </View>
+        
+        {/* Bank Balance Update */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Bank Balance</Text>
+          
+          <View style={styles.bankCard}>
+            <View style={styles.budgetRow}>
+              <Text style={styles.budgetLabel}>Current Balance</Text>
+              <Text style={styles.budgetValue}>₹{userData.currentBankBalance.toFixed(2)}</Text>
+            </View>
+            
+            <View style={styles.budgetRow}>
+              <Text style={styles.budgetLabel}>Total Income</Text>
+              <Text style={[styles.budgetValue, styles.incomeValue]}>
+                +₹{monthSummaries.reduce((sum, s) => sum + s.totalIncome, 0).toFixed(2)}
+              </Text>
+            </View>
+            
+            <View style={styles.budgetRow}>
+              <Text style={styles.budgetLabel}>Total Expenses</Text>
+              <Text style={[styles.budgetValue, styles.expenseValue]}>
+                -₹{monthSummaries.reduce((sum, s) => sum + s.totalExpenses, 0).toFixed(2)}
+              </Text>
+            </View>
+            
+            <View style={styles.divider} />
+            
+            <View style={styles.budgetRow}>
+              <Text style={styles.budgetLabelBold}>Updated Balance</Text>
+              <Text style={styles.budgetValueBold}>₹{newBankBalance.toFixed(2)}</Text>
+            </View>
+          </View>
+          
+          <View style={styles.noteBox}>
+            <Text style={styles.noteText}>
+              💡 Bank balance is affected by ALL transactions (income and expenses) from all months.
+            </Text>
+          </View>
+        </View>
+        
+        {/* Other Months Info */}
+        {monthSummaries.length > 1 && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Other Months</Text>
+            {monthSummaries
+              .filter(s => s.month !== currentMonth)
+              .map((monthSummary, idx) => (
+                <View key={idx} style={styles.otherMonthCard}>
+                  <Text style={styles.otherMonthTitle}>{monthSummary.monthLabel}</Text>
+                  <Text style={styles.otherMonthText}>
+                    {monthSummary.transactions.length} transaction{monthSummary.transactions.length !== 1 ? 's' : ''}
+                  </Text>
+                  <Text style={styles.otherMonthText}>
+                    Expenses: ₹{monthSummary.budgetImpactExpenses.toFixed(2)}
+                  </Text>
                 </View>
               ))}
           </View>
-        </View>
-        
-        {/* Budget Impact Question */}
-        {userChoice === null && (
-          <View style={styles.section}>
-            <View style={styles.questionCard}>
-              <Text style={styles.questionTitle}>
-                💰 Update Your Budget?
-              </Text>
-              <Text style={styles.questionSubtitle}>
-                Should we add these transactions to your monthly budget calculation?
-              </Text>
-              
-              <View style={styles.impactSummary}>
-                <View style={styles.impactRow}>
-                  <Text style={styles.impactLabel}>Current Budget:</Text>
-                  <Text style={styles.impactValueNeutral}>
-                    ₹{currentBudget.toLocaleString('en-IN')}
-                  </Text>
-                </View>
-                
-                <View style={styles.divider} />
-                
-                <View style={styles.impactRow}>
-                  <Text style={styles.impactLabel}>Income Detected:</Text>
-                  <Text style={styles.impactValueIncome}>
-                    +₹{totalIncome.toLocaleString('en-IN')}
-                  </Text>
-                </View>
-                
-                <View style={styles.impactRow}>
-                  <Text style={styles.impactLabel}>Total Expenses:</Text>
-                  <Text style={styles.impactValueExpense}>
-                    -₹{totalExpenses.toLocaleString('en-IN')}
-                  </Text>
-                </View>
-                
-                <View style={styles.divider} />
-                
-                <View style={styles.impactRow}>
-                  <Text style={styles.impactLabelBold}>Budget Impact:</Text>
-                  <Text style={styles.impactValueExpenseBold}>
-                    -₹{budgetAffectingExpenses.toLocaleString('en-IN')}
-                  </Text>
-                </View>
-                
-                <Text style={styles.budgetNote}>
-                  (Excludes Income & Transfers)
-                </Text>
-              </View>
-              
-              <View style={styles.buttonContainer}>
-                <TouchableOpacity
-                  style={[styles.choiceButton, styles.choiceButtonYes]}
-                  onPress={handleYes}
-                >
-                  <Text style={styles.choiceButtonText}>✅ Yes, update budget</Text>
-                </TouchableOpacity>
-                
-                <TouchableOpacity
-                  style={[styles.choiceButton, styles.choiceButtonNo]}
-                  onPress={handleNo}
-                >
-                  <Text style={styles.choiceButtonText}>❌ No, just import</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
-        )}
-        
-        {/* Calculation Reveal */}
-        {showCalculations && userChoice === 'yes' && (
-          <Animated.View
-            style={[
-              styles.section,
-              {
-                opacity: calculationHeight,
-                transform: [{
-                  translateY: calculationHeight.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [-20, 0],
-                  }),
-                }],
-              },
-            ]}
-          >
-            <View style={styles.calculationCard}>
-              <Text style={styles.calculationTitle}>📊 Budget Calculation</Text>
-              
-              <View style={styles.calculationRow}>
-                <Text style={styles.calculationLabel}>Original Budget:</Text>
-                <Text style={styles.calculationValue}>
-                  ₹{currentBudget?.toLocaleString('en-IN') || '0'}
-                </Text>
-              </View>
-              
-              <View style={styles.calculationRow}>
-                <Text style={styles.calculationLabel}>+ Income:</Text>
-                <Text style={styles.calculationValueIncome}>
-                  +₹{totalIncome.toLocaleString('en-IN')}
-                </Text>
-              </View>
-              
-              <View style={styles.calculationRow}>
-                <Text style={styles.calculationLabel}>- Expenses:</Text>
-                <Text style={styles.calculationValueExpense}>
-                  -₹{budgetAffectingExpenses.toLocaleString('en-IN')}
-                </Text>
-              </View>
-              
-              <View style={styles.divider} />
-              
-              <View style={styles.calculationRow}>
-                <Text style={styles.calculationLabelFinal}>New Budget:</Text>
-                <Text style={styles.calculationValueFinal}>
-                  ₹{newBudget?.toLocaleString('en-IN') || '0'}
-                </Text>
-              </View>
-              
-              <Text style={styles.formulaText}>
-                {currentBudget} + {totalIncome} - {budgetAffectingExpenses} = {newBudget}
-              </Text>
-            </View>
-          </Animated.View>
         )}
       </ScrollView>
       
-      {/* Final Confirmation Button */}
-      {userChoice === 'yes' && showCalculations && (
-        <View style={styles.footer}>
-          <TouchableOpacity
-            style={styles.confirmButton}
-            onPress={handleConfirm}
-            disabled={saving}
-          >
-            {saving ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={styles.confirmButtonText}>
-                ✨ Confirm & Update Budget
-              </Text>
-            )}
-          </TouchableOpacity>
-        </View>
-      )}
+      {/* Footer with Apply Button */}
+      <View style={styles.footer}>
+        <TouchableOpacity
+          style={[styles.applyButton, applying && styles.applyButtonDisabled]}
+          onPress={handleApply}
+          disabled={applying}
+        >
+          {applying ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <Text style={styles.applyButtonText}>Apply Updates</Text>
+          )}
+        </TouchableOpacity>
+      </View>
     </View>
   );
 }
@@ -535,22 +693,6 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#0A0A0A',
   },
-  content: {
-    flex: 1,
-  },
-  centerContent: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-  },
-  loadingText: {
-    color: '#8E8E93',
-    fontSize: 16,
-    marginTop: 16,
-  },
-  
-  // Header
   header: {
     padding: 20,
     paddingTop: 60,
@@ -565,271 +707,220 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '500',
   },
-  headerTitle: {
+  title: {
     color: '#FFFFFF',
     fontSize: 32,
     fontWeight: '700',
     marginBottom: 8,
-    letterSpacing: -0.5,
   },
-  headerSubtitle: {
+  subtitle: {
     color: '#8E8E93',
     fontSize: 16,
-    fontWeight: '400',
   },
   
-  // Sections
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    color: '#8E8E93',
+    fontSize: 16,
+    marginTop: 16,
+  },
+  
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  errorText: {
+    color: '#FF3B30',
+    fontSize: 18,
+    marginBottom: 20,
+  },
+  retryButton: {
+    backgroundColor: '#007AFF',
+    paddingHorizontal: 30,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  retryButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  
+  content: {
+    flex: 1,
+  },
+  
   section: {
     padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#1C1C1E',
   },
   sectionTitle: {
     color: '#FFFFFF',
     fontSize: 22,
     fontWeight: '700',
-    marginBottom: 20,
-    letterSpacing: -0.3,
+    marginBottom: 15,
   },
   
-  // Category Circles
-  circleGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 15,
-  },
-  circleCard: {
-    width: '47%',
-  },
-  circle: {
+  budgetCard: {
     backgroundColor: '#1C1C1E',
-    borderRadius: 20,
     padding: 20,
-    alignItems: 'center',
-    borderWidth: 2,
-    borderColor: '#2C2C2E',
-    minHeight: 130,
-    justifyContent: 'center',
+    borderRadius: 16,
+    marginBottom: 20,
   },
-  circleIncome: {
-    borderColor: '#30D158',
-    backgroundColor: '#0D2818',
-  },
-  circleExpense: {
-    borderColor: '#FF3B30',
-    backgroundColor: '#2A1414',
-  },
-  circleTransfer: {
-    borderColor: '#FF9500',
-    backgroundColor: '#1F1709',
-  },
-  circleCategoryName: {
-    color: '#8E8E93',
-    fontSize: 11,
-    fontWeight: 'bold',
-    letterSpacing: 1,
-    marginBottom: 10,
-    textAlign: 'center',
-  },
-  circleAmount: {
-    color: '#FF3B30',
-    fontSize: 24,
-    fontWeight: 'bold',
-    marginBottom: 6,
-  },
-  circleAmountIncome: {
-    color: '#30D158',
-  },
-  circleCount: {
-    color: '#636366',
-    fontSize: 13,
-    marginTop: 4,
-  },
-  noBudgetImpact: {
-    color: '#FF9500',
-    fontSize: 10,
-    marginTop: 6,
-    fontWeight: '600',
-  },
-  
-  // Question Card
-  questionCard: {
+  savingsCard: {
     backgroundColor: '#1C1C1E',
-    borderRadius: 20,
-    padding: 25,
-    borderWidth: 1,
-    borderColor: '#2C2C2E',
+    padding: 20,
+    borderRadius: 16,
   },
-  questionTitle: {
-    color: '#FFFFFF',
-    fontSize: 22,
-    fontWeight: '700',
-    marginBottom: 8,
-    textAlign: 'center',
-    letterSpacing: -0.3,
+  bankCard: {
+    backgroundColor: '#1C1C1E',
+    padding: 20,
+    borderRadius: 16,
+    marginBottom: 15,
   },
-  questionSubtitle: {
-    color: '#8E8E93',
-    fontSize: 15,
-    marginBottom: 24,
-    textAlign: 'center',
-    lineHeight: 21,
-  },
-  impactSummary: {
-    marginBottom: 25,
-  },
-  impactRow: {
+  budgetRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
     marginBottom: 12,
   },
-  impactLabel: {
+  budgetLabel: {
     color: '#8E8E93',
-    fontSize: 15,
-    fontWeight: '400',
+    fontSize: 16,
   },
-  impactLabelBold: {
+  budgetLabelBold: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  budgetValue: {
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '600',
   },
-  impactValueNeutral: {
+  budgetValueBold: {
     color: '#FFFFFF',
-    fontSize: 17,
+    fontSize: 20,
     fontWeight: '700',
   },
-  impactValueIncome: {
+  incomeValue: {
     color: '#30D158',
-    fontSize: 17,
-    fontWeight: '700',
   },
-  impactValueExpense: {
+  expenseValue: {
     color: '#FF3B30',
-    fontSize: 17,
-    fontWeight: '700',
   },
-  impactValueExpenseBold: {
+  negativeValue: {
     color: '#FF3B30',
-    fontSize: 19,
-    fontWeight: '700',
   },
-  budgetNote: {
-    color: '#636366',
-    fontSize: 13,
-    marginTop: 10,
-    textAlign: 'center',
-    fontStyle: 'italic',
-  },
+  
   divider: {
     height: 1,
     backgroundColor: '#2C2C2E',
-    marginVertical: 16,
-  },
-  buttonContainer: {
-    gap: 14,
-  },
-  choiceButton: {
-    paddingVertical: 17,
-    borderRadius: 14,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-  },
-  choiceButtonYes: {
-    backgroundColor: '#30D158',
-  },
-  choiceButtonNo: {
-    backgroundColor: '#FF3B30',
-  },
-  choiceButtonText: {
-    color: '#FFFFFF',
-    fontSize: 17,
-    fontWeight: '700',
-    letterSpacing: -0.2,
+    marginVertical: 12,
   },
   
-  // Calculation Card
-  calculationCard: {
-    backgroundColor: '#1C1C1E',
-    borderRadius: 20,
-    padding: 25,
-    borderWidth: 2,
-    borderColor: '#007AFF',
+  warningBox: {
+    backgroundColor: '#2a1f1f',
+    padding: 12,
+    borderRadius: 8,
+    marginTop: 12,
   },
-  calculationTitle: {
+  warningText: {
+    color: '#ff9500',
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  
+  noteBox: {
+    backgroundColor: '#1f2a2a',
+    padding: 12,
+    borderRadius: 8,
+  },
+  noteText: {
     color: '#007AFF',
-    fontSize: 20,
-    fontWeight: '700',
-    marginBottom: 20,
-    textAlign: 'center',
-    letterSpacing: -0.3,
+    fontSize: 14,
+    lineHeight: 20,
   },
-  calculationRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
+  
+  categorySection: {
+    marginTop: 10,
   },
-  calculationLabel: {
-    color: '#8E8E93',
-    fontSize: 15,
-    fontWeight: '400',
-  },
-  calculationValue: {
-    color: '#FFFFFF',
-    fontSize: 17,
-    fontWeight: '600',
-  },
-  calculationValueIncome: {
-    color: '#30D158',
-    fontSize: 17,
-    fontWeight: '700',
-  },
-  calculationValueExpense: {
-    color: '#FF3B30',
-    fontSize: 17,
-    fontWeight: '700',
-  },
-  calculationLabelFinal: {
+  categoryTitle: {
     color: '#FFFFFF',
     fontSize: 18,
-    fontWeight: '700',
+    fontWeight: '600',
+    marginBottom: 15,
   },
-  calculationValueFinal: {
-    color: '#007AFF',
-    fontSize: 24,
-    fontWeight: '700',
+  categoryGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
   },
-  formulaText: {
-    color: '#636366',
-    fontSize: 13,
-    marginTop: 16,
+  categoryCircle: {
+    width: '47%',
+    padding: 16,
+    borderRadius: 16,
+    alignItems: 'center',
+    minHeight: 100,
+    justifyContent: 'center',
+  },
+  categoryName: {
+    color: '#000000',
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 1,
+    marginBottom: 8,
     textAlign: 'center',
-    fontStyle: 'italic',
+  },
+  categoryAmount: {
+    color: '#000000',
+    fontSize: 18,
+    fontWeight: '700',
+    textAlign: 'center',
   },
   
-  // Footer
+  otherMonthCard: {
+    backgroundColor: '#1C1C1E',
+    padding: 15,
+    borderRadius: 12,
+    marginBottom: 12,
+  },
+  otherMonthTitle: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  otherMonthText: {
+    color: '#8E8E93',
+    fontSize: 14,
+    marginBottom: 4,
+  },
+  
   footer: {
     padding: 20,
     borderTopWidth: 1,
     borderTopColor: '#1C1C1E',
-    backgroundColor: '#0A0A0A',
   },
-  confirmButton: {
-    backgroundColor: '#007AFF',
+  applyButton: {
+    backgroundColor: '#30D158',
     paddingVertical: 18,
     borderRadius: 14,
     alignItems: 'center',
-    shadowColor: '#007AFF',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 8,
   },
-  confirmButtonText: {
-    color: '#FFFFFF',
+  applyButtonDisabled: {
+    backgroundColor: '#2a2a2a',
+    opacity: 0.5,
+  },
+  applyButtonText: {
+    color: '#000000',
     fontSize: 18,
     fontWeight: '700',
-    letterSpacing: -0.3,
   },
 });

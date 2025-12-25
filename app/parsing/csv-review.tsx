@@ -1,18 +1,17 @@
-// app/parsing/csv.tsx
-// File 1: CSV Import - Parse, Review, Categorize, and WRITE TO FIRESTORE
+// app/parsing/csv-review.tsx
+// File 2: Review, categorize, and WRITE TO FIRESTORE
 
-import * as DocumentPicker from 'expo-document-picker';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { collection, doc, getDocs, query, serverTimestamp, setDoc, where } from 'firebase/firestore';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
-  Alert,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    Alert,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
 } from 'react-native';
 import { auth, db } from '../../src2/firebase/config';
 
@@ -44,45 +43,21 @@ interface MonthGroup {
 // ============================================================================
 
 const AVAILABLE_CATEGORIES = [
-  'Food', 'Shopping', 'Groceries', 'Rent', 'Travel', 'Transport',
-  'Utilities', 'Subscriptions', 'Healthcare', 'Education',
-  'Transfers', 'Income', 'Gifts', 'Other',
+  'Food',
+  'Shopping',
+  'Groceries',
+  'Rent',
+  'Travel',
+  'Transport',
+  'Utilities',
+  'Subscriptions',
+  'Healthcare',
+  'Education',
+  'Transfers',
+  'Income',
+  'Gifts',
+  'Other',
 ];
-
-// ============================================================================
-// CATEGORY DETECTION ENGINE
-// ============================================================================
-
-const CATEGORY_RULES: Record<string, string[]> = {
-  income: ['salary', 'credited', 'credit', 'income', 'refund', 'cashback', 'reimbursement', 'incentive', 'bonus', 'stipend', 'interest'],
-  transfers: ['transfer', 'sent', 'paid to', 'upi', 'imps', 'neft', 'rtgs', 'gpay', 'phonepe', 'paytm', 'p2p', 'peer', 'friend'],
-  subscriptions: ['netflix', 'prime', 'amazon prime', 'hotstar', 'disney', 'spotify', 'youtube', 'google', 'apple', 'icloud', 'playstore', 'subscription', 'renewal', 'monthly', 'yearly'],
-  rent: ['rent', 'housing', 'society', 'maintenance', 'apartment', 'flat', 'pg', 'hostel'],
-  utilities: ['electricity', 'water', 'gas', 'broadband', 'internet', 'wifi', 'recharge', 'mobile', 'bill', 'postpaid', 'prepaid'],
-  healthcare: ['hospital', 'clinic', 'doctor', 'medical', 'pharmacy', 'chemist', 'medicine', 'lab', 'diagnostic', 'dental', 'health'],
-  education: ['school', 'college', 'university', 'tuition', 'coaching', 'course', 'training', 'exam', 'udemy', 'coursera', 'byjus', 'unacademy'],
-  travel: ['flight', 'airline', 'airways', 'hotel', 'resort', 'stay', 'booking', 'makemytrip', 'yatra', 'goibibo', 'oyo', 'airbnb', 'expedia', 'trivago'],
-  transport: ['uber', 'ola', 'rapido', 'cab', 'taxi', 'auto', 'metro', 'bus', 'train', 'irctc', 'fuel', 'petrol', 'diesel', 'gas', 'parking', 'toll'],
-  groceries: ['grocery', 'supermarket', 'supermart', 'mart', 'store', 'kirana', 'ration', 'provision', 'reliance', 'dmart', 'bigbazaar', 'more', 'spar'],
-  food: ['restaurant', 'restro', 'cafe', 'cafeteria', 'dhaba', 'dhabha', 'food', 'eatery', 'bistro', 'kitchen', 'bar', 'pub', 'bakery', 'pizza', 'burger', 'sandwich', 'biryani', 'dosa', 'idli', 'momo', 'boba', 'bubble', 'tea', 'coffee', 'swiggy', 'zomato', 'ubereats', 'foodpanda', 'dineout'],
-  shopping: ['amazon', 'flipkart', 'myntra', 'ajio', 'meesho', 'snapdeal', 'shopping', 'fashion', 'clothes', 'footwear', 'sneakers', 'shoes', 'apparel', 'lifestyle'],
-  gifts: ['gift', 'present', 'donation', 'charity', 'contribution'],
-};
-
-function detectCategory(merchantName: string): { category: string; confidence: 'high' | 'low' } {
-  const lowerMerchant = merchantName.toLowerCase().trim();
-  
-  for (const [categoryKey, keywords] of Object.entries(CATEGORY_RULES)) {
-    for (const keyword of keywords) {
-      if (lowerMerchant.includes(keyword)) {
-        const categoryName = categoryKey.charAt(0).toUpperCase() + categoryKey.slice(1);
-        return { category: categoryName, confidence: 'high' };
-      }
-    }
-  }
-  
-  return { category: 'Uncategorized', confidence: 'low' };
-}
 
 function shouldAffectBudget(category: string, type: 'expense' | 'income'): boolean {
   if (type === 'income') return false;
@@ -91,199 +66,7 @@ function shouldAffectBudget(category: string, type: 'expense' | 'income'): boole
 }
 
 // ============================================================================
-// CSV PARSING
-// ============================================================================
-
-function parseCSV(content: string): ParsedTransaction[] {
-  const lines = content.split('\n').filter(line => line.trim());
-  if (lines.length === 0) return [];
-  
-  const transactions: ParsedTransaction[] = [];
-  
-  for (let i = 1; i < lines.length; i++) {
-    const line = lines[i];
-    const columns = parseCSVLine(line);
-    
-    if (columns.length < 3) continue;
-    
-    const transaction = extractTransactionFromColumns(columns);
-    if (transaction) {
-      transactions.push(transaction);
-    }
-  }
-  
-  return transactions;
-}
-
-function parseCSVLine(line: string): string[] {
-  const result: string[] = [];
-  let current = '';
-  let inQuotes = false;
-  
-  for (let i = 0; i < line.length; i++) {
-    const char = line[i];
-    
-    if (char === '"') {
-      inQuotes = !inQuotes;
-    } else if (char === ',' && !inQuotes) {
-      result.push(current.trim());
-      current = '';
-    } else {
-      current += char;
-    }
-  }
-  
-  result.push(current.trim());
-  return result;
-}
-
-function extractTransactionFromColumns(columns: string[]): ParsedTransaction | null {
-  try {
-    let dateStr = '';
-    let merchantName = '';
-    let debit = 0;
-    let credit = 0;
-    
-    if (isValidDate(columns[0])) {
-      dateStr = columns[0];
-      merchantName = columns[1] || 'Unknown';
-      
-      for (let i = 2; i < columns.length; i++) {
-        const val = parseAmount(columns[i]);
-        if (val > 0) {
-          if (i === 2 || columns[i].includes('-')) {
-            debit = val;
-          } else {
-            credit = val;
-          }
-        }
-      }
-    } else if (columns.length > 1 && isValidDate(columns[1])) {
-      dateStr = columns[1];
-      merchantName = columns[0] || 'Unknown';
-      
-      for (let i = 2; i < columns.length; i++) {
-        const val = parseAmount(columns[i]);
-        if (val > 0) {
-          if (i === 2) debit = val;
-          else credit = val;
-        }
-      }
-    }
-    
-    if (!dateStr || (debit === 0 && credit === 0)) {
-      return null;
-    }
-    
-    const parsedDate = parseDate(dateStr);
-    if (!parsedDate) return null;
-    
-    const isIncome = credit > 0;
-    const amount = isIncome ? credit : debit;
-    
-    const { category, confidence } = detectCategory(merchantName);
-    
-    let type: 'expense' | 'income' = isIncome ? 'income' : 'expense';
-    if (category === 'Income') {
-      type = 'income';
-    }
-    
-    const affectsBudget = shouldAffectBudget(category, type);
-    
-    const date = parsedDate.toISOString();
-    const month = `${parsedDate.getFullYear()}-${String(parsedDate.getMonth() + 1).padStart(2, '0')}`;
-    const year = parsedDate.getFullYear();
-    
-    return {
-      amount,
-      type,
-      date,
-      month,
-      year,
-      merchantName: merchantName.substring(0, 100),
-      category,
-      source: 'csv',
-      confidence,
-      affectsBudget,
-    };
-  } catch (error) {
-    console.error('Error parsing transaction:', error);
-    return null;
-  }
-}
-
-function isValidDate(str: string): boolean {
-  if (!str) return false;
-  
-  const datePatterns = [
-    /^\d{1,2}[/-]\d{1,2}[/-]\d{4}$/,
-    /^\d{4}[/-]\d{1,2}[/-]\d{1,2}$/,
-    /^\d{1,2}\s+[A-Za-z]{3}\s+\d{4}$/,
-  ];
-  
-  return datePatterns.some(pattern => pattern.test(str.trim()));
-}
-
-function parseDate(str: string): Date | null {
-  try {
-    const cleaned = str.trim();
-    
-    let match = cleaned.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
-    if (match) {
-      const day = parseInt(match[1]);
-      const month = parseInt(match[2]) - 1;
-      const year = parseInt(match[3]);
-      return new Date(year, month, day);
-    }
-    
-    match = cleaned.match(/^(\d{4})[/-](\d{1,2})[/-](\d{1,2})$/);
-    if (match) {
-      const year = parseInt(match[1]);
-      const month = parseInt(match[2]) - 1;
-      const day = parseInt(match[3]);
-      return new Date(year, month, day);
-    }
-    
-    const monthMap: Record<string, number> = {
-      jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
-      jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
-    };
-    
-    match = cleaned.match(/^(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})$/i);
-    if (match) {
-      const day = parseInt(match[1]);
-      const monthStr = match[2].toLowerCase();
-      const year = parseInt(match[3]);
-      const month = monthMap[monthStr];
-      
-      if (month !== undefined) {
-        return new Date(year, month, day);
-      }
-    }
-    
-    const date = new Date(cleaned);
-    if (!isNaN(date.getTime())) {
-      return date;
-    }
-    
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-function parseAmount(str: string): number {
-  if (!str) return 0;
-  
-  const cleaned = str.replace(/[₹$,\s]/g, '').trim();
-  const numberStr = cleaned.replace(/[()-]/g, '');
-  
-  const amount = parseFloat(numberStr);
-  return isNaN(amount) ? 0 : Math.abs(amount);
-}
-
-// ============================================================================
-// FIREBASE FUNCTIONS
+// GENERATE TRANSACTION ID
 // ============================================================================
 
 function generateTransactionId(): string {
@@ -292,11 +75,18 @@ function generateTransactionId(): string {
   return `${timestamp}_${randomStr}`;
 }
 
-async function checkDuplicates(transactions: ParsedTransaction[]): Promise<boolean> {
+// ============================================================================
+// CHECK FOR DUPLICATE TRANSACTIONS
+// ============================================================================
+
+async function checkDuplicates(
+  transactions: ParsedTransaction[]
+): Promise<boolean> {
   const user = auth.currentUser;
   if (!user) return false;
   
   try {
+    // Check only a sample to avoid too many reads
     const sampleSize = Math.min(3, transactions.length);
     const sample = transactions.slice(0, sampleSize);
     
@@ -310,7 +100,7 @@ async function checkDuplicates(transactions: ParsedTransaction[]): Promise<boole
       
       const snapshot = await getDocs(q);
       if (!snapshot.empty) {
-        return true;
+        return true; // Found duplicate
       }
     }
     
@@ -320,6 +110,10 @@ async function checkDuplicates(transactions: ParsedTransaction[]): Promise<boole
     return false;
   }
 }
+
+// ============================================================================
+// FIREBASE WRITE FUNCTION - WRITES TO transactions/<uid>/items/<id>
+// ============================================================================
 
 async function saveTransactionsToFirestore(
   transactions: ParsedTransaction[]
@@ -361,7 +155,7 @@ async function saveTransactionsToFirestore(
 }
 
 // ============================================================================
-// UTILITY FUNCTIONS
+// GROUP TRANSACTIONS BY MONTH
 // ============================================================================
 
 function groupTransactionsByMonth(transactions: ParsedTransaction[]): MonthGroup[] {
@@ -375,7 +169,7 @@ function groupTransactionsByMonth(transactions: ParsedTransaction[]): MonthGroup
   });
   
   const groups: MonthGroup[] = Object.entries(monthMap)
-    .sort((a, b) => b[0].localeCompare(a[0]))
+    .sort((a, b) => b[0].localeCompare(a[0])) // Sort newest first
     .map(([month, txns]) => {
       const [year, monthNum] = month.split('-');
       const date = new Date(parseInt(year), parseInt(monthNum) - 1, 1);
@@ -395,80 +189,40 @@ function groupTransactionsByMonth(transactions: ParsedTransaction[]): MonthGroup
 }
 
 // ============================================================================
-// MAIN COMPONENT
+// COMPONENT
 // ============================================================================
 
-export default function CSVImportScreen() {
+export default function CSVReviewScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams();
   
   const [loading, setLoading] = useState(false);
-  const [parsing, setParsing] = useState(false);
-  const [showReview, setShowReview] = useState(false);
   const [transactions, setTransactions] = useState<ParsedTransaction[]>([]);
-  const [monthGroups, setMonthGroups] = useState<MonthGroup[]>([]);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
-  
-  const currentMonth = new Date().toISOString().substring(0, 7);
+  const [monthGroups, setMonthGroups] = useState<MonthGroup[]>([]);
   
   // ============================================================================
-  // FILE IMPORT
+  // PARSE PARAMS ON MOUNT
   // ============================================================================
   
-  const handleImport = async () => {
-    try {
-      setLoading(true);
-      
-      const result = await DocumentPicker.getDocumentAsync({
-        type: ['text/csv', 'text/comma-separated-values'],
-        copyToCacheDirectory: true,
-      });
-      
-      if (result.canceled) {
-        setLoading(false);
-        return;
+  useEffect(() => {
+    if (params.transactions) {
+      try {
+        const parsed: ParsedTransaction[] = JSON.parse(params.transactions as string);
+        setTransactions(parsed);
+        
+        const groups = groupTransactionsByMonth(parsed);
+        setMonthGroups(groups);
+      } catch (error) {
+        console.error('Failed to parse transactions:', error);
+        Alert.alert('Error', 'Failed to load transactions');
+        router.back();
       }
-      
-      const file = result.assets[0];
-      if (!file) {
-        setLoading(false);
-        return;
-      }
-      
-      setParsing(true);
-      
-      const fileUri = file.uri;
-      const response = await fetch(fileUri);
-      const content = await response.text();
-      
-      const parsedTransactions = parseCSV(content);
-      
-      if (parsedTransactions.length === 0) {
-        Alert.alert('No Transactions', 'Could not find any valid transactions in the file.');
-        setParsing(false);
-        setLoading(false);
-        return;
-      }
-      
-      console.log(`✅ Parsed ${parsedTransactions.length} transactions`);
-      
-      setTransactions(parsedTransactions);
-      const groups = groupTransactionsByMonth(parsedTransactions);
-      setMonthGroups(groups);
-      
-      setParsing(false);
-      setLoading(false);
-      setShowReview(true);
-      
-    } catch (error) {
-      console.error('Import error:', error);
-      Alert.alert('Error', 'Failed to import file. Please try again.');
-      setParsing(false);
-      setLoading(false);
     }
-  };
+  }, [params.transactions]);
   
   // ============================================================================
-  // CATEGORY SELECTION
+  // CATEGORY SELECTION HANDLER
   // ============================================================================
   
   const handleCategorySelect = (index: number, newCategory: string) => {
@@ -479,6 +233,7 @@ export default function CSVImportScreen() {
     
     setTransactions(updated);
     
+    // Update month groups
     const groups = groupTransactionsByMonth(updated);
     setMonthGroups(groups);
     
@@ -497,11 +252,12 @@ export default function CSVImportScreen() {
     t => t.confidence === 'low' || t.category === 'Uncategorized'
   ).length;
   
+  const currentMonth = new Date().toISOString().substring(0, 7);
   const hasMultipleMonths = monthGroups.length > 1;
   const hasOtherMonths = monthGroups.some(g => g.month !== currentMonth);
   
   // ============================================================================
-  // SAVE TO FIRESTORE
+  // SAVE HANDLER - WRITES TO FIRESTORE
   // ============================================================================
   
   const handleSave = async () => {
@@ -511,13 +267,6 @@ export default function CSVImportScreen() {
         `${uncategorizedCount} transaction${uncategorizedCount !== 1 ? 's' : ''} need${uncategorizedCount === 1 ? 's' : ''} categorization before import.`,
         [{ text: 'OK' }]
       );
-      return;
-    }
-    
-    // Check if user is authenticated
-    const user = auth.currentUser;
-    if (!user) {
-      Alert.alert('Error', 'You must be logged in to import transactions.');
       return;
     }
     
@@ -561,8 +310,7 @@ export default function CSVImportScreen() {
   
   const proceedWithSave = async () => {
     try {
-      console.log('💾 Starting Firestore write...');
-      
+      // WRITE TO FIRESTORE: transactions/<uid>/items/<transactionId>
       const result = await saveTransactionsToFirestore(transactions);
       
       setLoading(false);
@@ -578,8 +326,14 @@ export default function CSVImportScreen() {
       
       console.log(`✅ Successfully saved ${result.success} transactions to Firestore`);
       
-      // Navigate to csv-imports screen (NO PARAMS - will read from Firestore)
-      router.push('/parsing/csv-imports');
+      // Navigate to csv-imports screen (this will handle budget updates)
+      router.push({
+        pathname: '/parsing/csv-imports',
+        params: {
+          transactionCount: transactions.length.toString(),
+          hasOtherMonths: hasOtherMonths.toString(),
+        },
+      });
       
     } catch (error) {
       setLoading(false);
@@ -589,54 +343,7 @@ export default function CSVImportScreen() {
   };
   
   // ============================================================================
-  // RENDER: EMPTY STATE
-  // ============================================================================
-  
-  if (!showReview) {
-    return (
-      <View style={styles.container}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-            <Text style={styles.backButtonText}>← Back</Text>
-          </TouchableOpacity>
-          <Text style={styles.title}>Import Bank Statement</Text>
-          <Text style={styles.subtitle}>
-            Upload your CSV file to automatically categorize transactions
-          </Text>
-        </View>
-        
-        <View style={styles.emptyState}>
-          <Text style={styles.emptyIcon}>📊</Text>
-          <Text style={styles.emptyTitle}>Select CSV File</Text>
-          <Text style={styles.emptyDescription}>
-            Choose a bank statement CSV file to import transactions
-          </Text>
-          
-          <TouchableOpacity
-            style={styles.importButton}
-            onPress={handleImport}
-            disabled={loading}
-          >
-            {loading ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={styles.importButtonText}>Choose File</Text>
-            )}
-          </TouchableOpacity>
-          
-          {parsing && (
-            <View style={styles.parsingIndicator}>
-              <ActivityIndicator size="small" color="#007AFF" />
-              <Text style={styles.parsingText}>Parsing transactions...</Text>
-            </View>
-          )}
-        </View>
-      </View>
-    );
-  }
-  
-  // ============================================================================
-  // RENDER: REVIEW STATE
+  // RENDER
   // ============================================================================
   
   return (
@@ -670,7 +377,7 @@ export default function CSVImportScreen() {
           </View>
         )}
         
-        {monthGroups.map((group) => {
+        {monthGroups.map((group, groupIdx) => {
           const isCurrentMonth = group.month === currentMonth;
           
           return (
@@ -842,53 +549,6 @@ const styles = StyleSheet.create({
   },
   subtitle: {
     color: '#8E8E93',
-    fontSize: 16,
-  },
-  
-  emptyState: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 40,
-  },
-  emptyIcon: {
-    fontSize: 80,
-    marginBottom: 20,
-  },
-  emptyTitle: {
-    color: '#FFFFFF',
-    fontSize: 24,
-    fontWeight: '700',
-    marginBottom: 10,
-  },
-  emptyDescription: {
-    color: '#8E8E93',
-    fontSize: 16,
-    textAlign: 'center',
-    marginBottom: 30,
-    lineHeight: 22,
-  },
-  importButton: {
-    backgroundColor: '#007AFF',
-    paddingHorizontal: 40,
-    paddingVertical: 16,
-    borderRadius: 12,
-    minWidth: 200,
-    alignItems: 'center',
-  },
-  importButtonText: {
-    color: '#FFFFFF',
-    fontSize: 18,
-    fontWeight: '700',
-  },
-  parsingIndicator: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 20,
-  },
-  parsingText: {
-    color: '#8E8E93',
-    marginLeft: 10,
     fontSize: 16,
   },
   
