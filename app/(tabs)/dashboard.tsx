@@ -1,9 +1,7 @@
-// app/(tabs)/dashboard.tsx - COMPLETE WITH REAL FIRESTORE DATA
-
-import { useFocusEffect } from '@react-navigation/native';
+// app/(tabs)/dashboard.tsx - COMPLETE FIRESTORE INTEGRATION
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
-import { collection, doc, getDoc, getDocs, query, where } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, query, where, orderBy, limit } from 'firebase/firestore';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -20,11 +18,11 @@ import {
 import { Circle, Defs, Stop, Svg, RadialGradient as SvgRadialGradient } from 'react-native-svg';
 import { useTheme } from '../../contexts/ThemeContext';
 import { auth, db } from '../../src2/firebase/config';
+import { useFocusEffect } from '@react-navigation/native';
 
 const { width, height } = Dimensions.get('window');
 
 // ============== INTERFACES ==============
-
 interface SavingPurpose {
   text: string;
   type: string;
@@ -35,16 +33,19 @@ interface SavingDuration {
   value: number;
 }
 
-interface UserData {
+interface UserOnboardingData {
   name?: string;
   monthlyIncome?: number;
   monthlyBudget?: number;
+  savingAmount?: number;
   savingPercentage?: number;
   hasSavingGoal?: boolean;
   categories?: string[];
   savingPurpose?: SavingPurpose | null;
   savingDuration?: SavingDuration | null;
   notificationPreference?: string;
+  currentBankBalance?: number;
+  onboardingCompletedAt?: any;
 }
 
 interface Transaction {
@@ -56,11 +57,22 @@ interface Transaction {
   date: string;
   type: 'income' | 'expense' | 'transfer';
   affectsBudget: boolean;
+  appliedToBudget?: boolean;
+  appliedToBank?: boolean;
   source: string;
   month: string;
   year: number;
   confidence?: number;
   rawText?: string;
+  importBatchId?: string;
+  appliedAt?: any;
+}
+
+interface MonthlyBudget {
+  initialBudget: number;
+  remainingBudget: number;
+  overdrawn: boolean;
+  updatedAt: any;
 }
 
 interface CategorySpending {
@@ -71,8 +83,19 @@ interface CategorySpending {
   icon: string;
 }
 
-// ============== STAR BACKGROUND (DARK MODE) ==============
+// ============== HELPER FUNCTIONS ==============
+function getCurrentMonth(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+}
 
+function getPreviousMonth(): string {
+  const now = new Date();
+  const prevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  return `${prevMonth.getFullYear()}-${String(prevMonth.getMonth() + 1).padStart(2, '0')}`;
+}
+
+// ============== STAR BACKGROUND (DARK MODE) ==============
 const DreamyStarBackground = () => {
   const [stars, setStars] = useState<any[]>([]);
 
@@ -136,7 +159,6 @@ const DreamyStarBackground = () => {
 };
 
 // ============== FLOATING FLOWERS (LIGHT MODE) ==============
-
 const FloatingFlowers = () => {
   const [flowers, setFlowers] = useState<any[]>([]);
 
@@ -196,7 +218,6 @@ const FloatingFlowers = () => {
 };
 
 // ============== BOTTOM TAB BAR ==============
-
 const BottomTabBar = ({ activeTab }: { activeTab: string }) => {
   const { theme } = useTheme();
   const scaleAnims = {
@@ -271,11 +292,13 @@ const BottomTabBar = ({ activeTab }: { activeTab: string }) => {
 };
 
 // ============== MAIN DASHBOARD COMPONENT ==============
-
 export default function Dashboard() {
   const { theme, isDark } = useTheme();
-  const [userData, setUserData] = useState<UserData | null>(null);
+  const [onboardingData, setOnboardingData] = useState<UserOnboardingData | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [currentMonthBudget, setCurrentMonthBudget] = useState<MonthlyBudget | null>(null);
+  const [previousMonthBudget, setPreviousMonthBudget] = useState<MonthlyBudget | null>(null);
+  const [historicalBudgets, setHistoricalBudgets] = useState<{ [key: string]: MonthlyBudget }>({});
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [selectedMonth, setSelectedMonth] = useState(getCurrentMonth());
@@ -283,11 +306,11 @@ export default function Dashboard() {
   // Fetch data on mount and when screen comes into focus
   useFocusEffect(
     useCallback(() => {
-      fetchData();
+      fetchAllData();
     }, [selectedMonth])
   );
 
-  const fetchData = async () => {
+  const fetchAllData = async () => {
     try {
       const currentUser = auth.currentUser;
       if (!currentUser?.uid) {
@@ -296,23 +319,55 @@ export default function Dashboard() {
       }
 
       const uid = currentUser.uid;
+      const currentMonth = getCurrentMonth();
+      const previousMonth = getPreviousMonth();
 
-      // Fetch user data from both collections
-      const [userDocSnap, onboardingDocSnap] = await Promise.all([
-        getDoc(doc(db, "users", uid)),
-        getDoc(doc(db, "userOnboardingData", uid))
-      ]);
+      // Fetch onboarding data
+      const onboardingDoc = await getDoc(doc(db, "userOnboardingData", uid));
+      const onboardingResult = onboardingDoc.exists() ? onboardingDoc.data() as UserOnboardingData : null;
+      setOnboardingData(onboardingResult);
 
-      const mergedData: UserData = {
-        ...(userDocSnap.exists() ? userDocSnap.data() : {}),
-        ...(onboardingDocSnap.exists() ? onboardingDocSnap.data() : {})
-      };
+      // Fetch current month budget
+      const currentBudgetDoc = await getDoc(doc(db, "userBudgets", uid, "months", currentMonth));
+      const currentBudgetResult = currentBudgetDoc.exists() ? currentBudgetDoc.data() as MonthlyBudget : null;
+      setCurrentMonthBudget(currentBudgetResult);
 
-      setUserData(mergedData);
+      // Fetch previous month budget for comparison
+      const previousBudgetDoc = await getDoc(doc(db, "userBudgets", uid, "months", previousMonth));
+      const previousBudgetResult = previousBudgetDoc.exists() ? previousBudgetDoc.data() as MonthlyBudget : null;
+      setPreviousMonthBudget(previousBudgetResult);
+
+      // Fetch historical budgets for savings calculation
+      if (onboardingResult?.savingDuration) {
+        const durationInMonths = onboardingResult.savingDuration.unit === 'years' 
+          ? onboardingResult.savingDuration.value * 12 
+          : onboardingResult.savingDuration.value;
+        
+        const historicalBudgetsMap: { [key: string]: MonthlyBudget } = {};
+        
+        // Fetch past months for savings calculation
+        for (let i = 0; i < durationInMonths; i++) {
+          const date = new Date();
+          date.setMonth(date.getMonth() - i);
+          const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+          
+          const budgetDoc = await getDoc(doc(db, "userBudgets", uid, "months", monthKey));
+          if (budgetDoc.exists()) {
+            historicalBudgetsMap[monthKey] = budgetDoc.data() as MonthlyBudget;
+          }
+        }
+        
+        setHistoricalBudgets(historicalBudgetsMap);
+      }
 
       // Fetch transactions for selected month
       const transactionsRef = collection(db, "transactions", uid, "items");
-      const q = query(transactionsRef, where("month", "==", selectedMonth));
+      const q = query(
+        transactionsRef, 
+        where("month", "==", selectedMonth),
+        orderBy("date", "desc"),
+        limit(50)
+      );
       
       const querySnapshot = await getDocs(q);
       const fetchedTransactions: Transaction[] = [];
@@ -324,14 +379,9 @@ export default function Dashboard() {
         } as Transaction);
       });
 
-      // Sort by date descending
-      fetchedTransactions.sort((a, b) => 
-        new Date(b.date).getTime() - new Date(a.date).getTime()
-      );
-
       setTransactions(fetchedTransactions);
     } catch (error) {
-      console.error("Error fetching data:", error);
+      console.error("Error fetching dashboard data:", error);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -340,7 +390,7 @@ export default function Dashboard() {
 
   const onRefresh = () => {
     setRefreshing(true);
-    fetchData();
+    fetchAllData();
   };
 
   const getGreeting = () => {
@@ -350,7 +400,7 @@ export default function Dashboard() {
     return "Good Evening";
   };
 
-  // Calculate spending statistics
+  // Calculate spending statistics from Firestore data
   const calculateStats = () => {
     const budgetAffectingTransactions = transactions.filter(t => t.affectsBudget);
     const totalSpent = budgetAffectingTransactions.reduce((sum, t) => {
@@ -361,14 +411,73 @@ export default function Dashboard() {
       .filter(t => t.type === 'income')
       .reduce((sum, t) => sum + t.amount, 0);
 
-    const totalTransfers = transactions
-      .filter(t => t.type === 'transfer')
-      .reduce((sum, t) => sum + t.amount, 0);
-
-    return { totalSpent, totalIncome, totalTransfers };
+    return { totalSpent, totalIncome };
   };
 
-  const { totalSpent, totalIncome, totalTransfers } = calculateStats();
+  // Calculate savings progress from historical budgets (NEVER from transactions)
+  const calculateSavingsProgress = () => {
+    if (!onboardingData?.savingAmount || !onboardingData?.savingDuration) {
+      return { savedSoFar: 0, progressPercent: 0 };
+    }
+
+    let savedSoFar = 0;
+    
+    // Sum savings from all historical months
+    Object.values(historicalBudgets).forEach(budget => {
+      if (budget.remainingBudget > 0) {
+        savedSoFar += budget.remainingBudget;
+      } else if (budget.remainingBudget < 0) {
+        // Overspending reduces total savings
+        savedSoFar -= Math.abs(budget.remainingBudget);
+      }
+    });
+
+    const progressPercent = onboardingData.savingAmount > 0 
+      ? Math.min((savedSoFar / onboardingData.savingAmount) * 100, 100) 
+      : 0;
+
+    return { savedSoFar: Math.max(0, savedSoFar), progressPercent };
+  };
+
+  // Calculate month-over-month comparison
+  const calculateMonthComparison = () => {
+    if (!currentMonthBudget || !previousMonthBudget) {
+      return null;
+    }
+
+    const currentSpent = currentMonthBudget.initialBudget - currentMonthBudget.remainingBudget;
+    const previousSpent = previousMonthBudget.initialBudget - previousMonthBudget.remainingBudget;
+    const diff = currentSpent - previousSpent;
+
+    return {
+      currentSpent,
+      previousSpent,
+      diff,
+      isLess: diff < 0
+    };
+  };
+
+  // Calculate savings streak
+  const calculateSavingsStreak = () => {
+    let streak = 0;
+    const sortedMonths = Object.keys(historicalBudgets).sort().reverse();
+    
+    for (const month of sortedMonths) {
+      const budget = historicalBudgets[month];
+      if (budget.remainingBudget > 0) {
+        streak++;
+      } else {
+        break;
+      }
+    }
+    
+    return streak;
+  };
+
+  const { totalSpent, totalIncome } = calculateStats();
+  const { savedSoFar, progressPercent } = calculateSavingsProgress();
+  const monthComparison = calculateMonthComparison();
+  const savingsStreak = calculateSavingsStreak();
 
   if (loading) {
     return (
@@ -383,7 +492,7 @@ export default function Dashboard() {
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={theme.accent[0]} />
           <Text style={[styles.loadingText, { color: theme.secondaryText }]}>
-            Loading your data...
+            Loading your financial data...
           </Text>
         </View>
       </View>
@@ -423,7 +532,7 @@ export default function Dashboard() {
               {getGreeting()}
             </Text>
             <Text style={[styles.userName, { color: theme.primaryText }]}>
-              {userData?.name || 'Welcome'}
+              {onboardingData?.name || 'Welcome'}
             </Text>
           </View>
         </View>
@@ -435,44 +544,58 @@ export default function Dashboard() {
         />
 
         {/* 1. Quote Box */}
-        <QuoteBox savingPurpose={userData?.savingPurpose} />
+        <QuoteBox savingPurpose={onboardingData?.savingPurpose} />
 
         {/* 2. Airplane Progress */}
         <AirplaneProgress 
-          savingPercentage={userData?.savingPercentage}
-          monthlyBudget={userData?.monthlyBudget}
-          savingDuration={userData?.savingDuration}
+          onboardingData={onboardingData}
+          currentMonthBudget={currentMonthBudget}
           totalSpent={totalSpent}
         />
 
-        {/* 3. Circular Progress + Categories */}
-        <ProgressWithCategories 
-          savingPercentage={userData?.savingPercentage}
-          monthlyBudget={userData?.monthlyBudget}
-          savingDuration={userData?.savingDuration}
-          categories={userData?.categories || []}
-          transactions={transactions}
+        {/* 3. Savings Progress (Multi-Month Segmented Bar) */}
+        <SavingsProgressSection
+          onboardingData={onboardingData}
+          savedSoFar={savedSoFar}
+          progressPercent={progressPercent}
         />
 
-        {/* 4. Month Progress + Calendar */}
+        {/* 4. Month Comparison */}
+        {monthComparison && (
+          <MonthComparisonSection comparison={monthComparison} />
+        )}
+
+        {/* 5. Circular Progress + Categories */}
+        <ProgressWithCategories 
+          onboardingData={onboardingData}
+          transactions={transactions}
+          savedSoFar={savedSoFar}
+        />
+
+        {/* 6. Month Progress + Calendar */}
         <MonthCalendarSection 
-          savingDuration={userData?.savingDuration}
-          monthlyBudget={userData?.monthlyBudget}
+          onboardingData={onboardingData}
+          currentMonthBudget={currentMonthBudget}
           totalSpent={totalSpent}
           selectedMonth={selectedMonth}
         />
 
-        {/* 5. SMS and CSV Import */}
+        {/* 7. Savings Streak */}
+        {savingsStreak >= 2 && (
+          <SavingsStreakSection streak={savingsStreak} />
+        )}
+
+        {/* 8. SMS and CSV Import */}
         <ImportBoxes />
 
-        {/* 6. Categories Breakdown */}
+        {/* 9. Categories Breakdown */}
         <CategoriesBreakdown 
-          categories={userData?.categories || []} 
+          categories={onboardingData?.categories || []} 
           transactions={transactions}
-          monthlyBudget={userData?.monthlyBudget}
+          monthlyBudget={onboardingData?.monthlyBudget}
         />
 
-        {/* 7. Recent Transactions */}
+        {/* 10. Recent Transactions */}
         <RecentTransactionsSection transactions={transactions} />
 
         <View style={{ height: 100 }} />
@@ -483,15 +606,7 @@ export default function Dashboard() {
   );
 }
 
-// ============== HELPER FUNCTION ==============
-
-function getCurrentMonth(): string {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-}
-
 // ============== MONTH SELECTOR ==============
-
 const MonthSelector = ({ selectedMonth, onMonthChange }: { 
   selectedMonth: string; 
   onMonthChange: (month: string) => void;
@@ -544,7 +659,6 @@ const MonthSelector = ({ selectedMonth, onMonthChange }: {
 };
 
 // ============== 1. QUOTE BOX ==============
-
 const QuoteBox = ({ savingPurpose }: { savingPurpose?: SavingPurpose | null }) => {
   const { theme, isDark } = useTheme();
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -566,7 +680,11 @@ const QuoteBox = ({ savingPurpose }: { savingPurpose?: SavingPurpose | null }) =
   }, []);
 
   const getQuote = () => {
-    const purposeType = savingPurpose?.type?.toLowerCase() || '';
+    if (!savingPurpose) {
+      return "Set a savings goal to start your journey ✨";
+    }
+
+    const purposeType = savingPurpose.type?.toLowerCase() || '';
     
     if (purposeType.includes('travel')) {
       return "Every rupee saved is a step towards freedom";
@@ -609,16 +727,13 @@ const QuoteBox = ({ savingPurpose }: { savingPurpose?: SavingPurpose | null }) =
 };
 
 // ============== 2. AIRPLANE PROGRESS ==============
-
 const AirplaneProgress = ({ 
-  savingPercentage, 
-  monthlyBudget, 
-  savingDuration,
+  onboardingData,
+  currentMonthBudget,
   totalSpent
 }: { 
-  savingPercentage?: number; 
-  monthlyBudget?: number; 
-  savingDuration?: SavingDuration | null;
+  onboardingData: UserOnboardingData | null;
+  currentMonthBudget: MonthlyBudget | null;
   totalSpent: number;
 }) => {
   const { theme, isDark } = useTheme();
@@ -641,22 +756,20 @@ const AirplaneProgress = ({
     }).start();
   }, [totalSpent]);
 
+  // Calculate progress based on Firestore budget data
   const calculateProgress = () => {
-    if (!savingPercentage || !monthlyBudget || !savingDuration) {
+    if (!onboardingData?.savingAmount || !onboardingData?.savingDuration || !currentMonthBudget) {
       return 0;
     }
     
-    const clampedPercentage = Math.max(0, Math.min(100, savingPercentage));
-    const monthlySavingAmount = (monthlyBudget * clampedPercentage) / 100;
+    const durationInMonths = onboardingData.savingDuration.unit === 'years' 
+      ? onboardingData.savingDuration.value * 12 
+      : onboardingData.savingDuration.value;
     
-    const value = savingDuration.value || 1;
-    const unit = savingDuration.unit || 'years';
-    const durationInMonths = unit === 'years' ? value * 12 : value;
+    const monthlyTarget = onboardingData.savingAmount / durationInMonths;
+    const currentSaved = Math.max(0, currentMonthBudget.remainingBudget);
     
-    const targetAmount = durationInMonths * monthlySavingAmount;
-    const currentSaved = Math.max(0, (monthlyBudget - totalSpent));
-    
-    return targetAmount > 0 ? Math.min((currentSaved / targetAmount) * 100, 100) : 0;
+    return monthlyTarget > 0 ? Math.min((currentSaved / monthlyTarget) * 100, 100) : 0;
   };
 
   const progress = calculateProgress();
@@ -665,10 +778,11 @@ const AirplaneProgress = ({
     outputRange: [0, (width - 80) * (progress / 100)],
   });
 
-  const clampedPercentage = Math.max(0, Math.min(100, savingPercentage || 0));
-  const currentSaved = Math.max(0, (monthlyBudget || 0) - totalSpent);
-  const remaining = (monthlyBudget || 0) - totalSpent;
+  // Use Firestore budget data instead of calculations
+  const monthlyBudget = currentMonthBudget?.initialBudget || onboardingData?.monthlyBudget || 0;
+  const remaining = currentMonthBudget?.remainingBudget || (monthlyBudget - totalSpent);
   const isOverBudget = remaining < 0;
+  const currentSaved = Math.max(0, remaining);
 
   return (
     <Animated.View style={{ opacity: fadeAnim }}>
@@ -705,7 +819,7 @@ const AirplaneProgress = ({
               Monthly Budget:
             </Text>
             <Text style={[styles.budgetValue, { color: theme.primaryText }]}>
-              ₹{monthlyBudget || 0}
+              ₹{monthlyBudget}
             </Text>
           </View>
           
@@ -749,22 +863,165 @@ const AirplaneProgress = ({
   );
 };
 
-// ============== 3. CIRCULAR PROGRESS + CATEGORIES ==============
+// ============== 3. SAVINGS PROGRESS (MULTI-MONTH SEGMENTED BAR) ==============
+const SavingsProgressSection = ({
+  onboardingData,
+  savedSoFar,
+  progressPercent
+}: {
+  onboardingData: UserOnboardingData | null;
+  savedSoFar: number;
+  progressPercent: number;
+}) => {
+  const { theme, isDark } = useTheme();
+  const fadeAnim = useRef(new Animated.Value(0)).current;
 
+  useEffect(() => {
+    Animated.timing(fadeAnim, {
+      toValue: 1,
+      duration: 600,
+      delay: 300,
+      useNativeDriver: true,
+    }).start();
+  }, []);
+
+  if (!onboardingData?.savingAmount || !onboardingData?.savingDuration) {
+    return null;
+  }
+
+  const durationInMonths = onboardingData.savingDuration.unit === 'years' 
+    ? onboardingData.savingDuration.value * 12 
+    : onboardingData.savingDuration.value;
+
+  const currentMonth = Math.min(Math.ceil(progressPercent / 100 * durationInMonths), durationInMonths);
+
+  return (
+    <Animated.View style={{ opacity: fadeAnim }}>
+      <LinearGradient
+        colors={isDark 
+          ? ['rgba(232, 180, 248, 0.2)', 'rgba(180, 164, 248, 0.1)']
+          : ['rgba(212, 165, 165, 0.25)', 'rgba(196, 154, 154, 0.12)']
+        }
+        style={styles.savingsProgressBox}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+      >
+        <Text style={[styles.sectionTitle, { color: theme.primaryText, marginBottom: 16 }]}>
+          Savings Goal Progress
+        </Text>
+
+        <View style={styles.savingsGoalInfo}>
+          <Text style={[styles.savingsGoalLabel, { color: theme.secondaryText }]}>
+            Savings Goal: ₹{onboardingData.savingAmount.toLocaleString()}
+          </Text>
+          <Text style={[styles.savingsGoalLabel, { color: theme.secondaryText }]}>
+            Duration: {onboardingData.savingDuration.value} {onboardingData.savingDuration.unit}
+          </Text>
+        </View>
+
+        <View style={styles.segmentedProgressBar}>
+          {Array.from({ length: durationInMonths }, (_, i) => (
+            <View
+              key={i}
+              style={[
+                styles.progressSegment,
+                {
+                  backgroundColor: i < currentMonth 
+                    ? (isDark ? '#E8B4F8' : '#D4A5A5')
+                    : theme.cardBorder
+                }
+              ]}
+            />
+          ))}
+        </View>
+
+        <Text style={[styles.progressLabel, { color: theme.primaryText }]}>
+          Month {currentMonth} of {durationInMonths}
+        </Text>
+
+        <View style={styles.savingsAmountInfo}>
+          <Text style={[styles.savedAmountText, { color: theme.primaryText }]}>
+            Saved: ₹{Math.floor(savedSoFar).toLocaleString()} / ₹{onboardingData.savingAmount.toLocaleString()}
+          </Text>
+          <Text style={[styles.progressPercentText, { color: theme.secondaryText }]}>
+            {progressPercent.toFixed(1)}% Complete
+          </Text>
+        </View>
+      </LinearGradient>
+    </Animated.View>
+  );
+};
+
+// ============== 4. MONTH COMPARISON ==============
+const MonthComparisonSection = ({ comparison }: { comparison: any }) => {
+  const { theme, isDark } = useTheme();
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.timing(fadeAnim, {
+      toValue: 1,
+      duration: 600,
+      delay: 400,
+      useNativeDriver: true,
+    }).start();
+  }, []);
+
+  return (
+    <Animated.View style={{ opacity: fadeAnim }}>
+      <View style={[styles.comparisonBox, { 
+        backgroundColor: isDark ? 'rgba(232, 180, 248, 0.15)' : 'rgba(212, 165, 165, 0.2)' 
+      }]}>
+        <Text style={[styles.comparisonText, { 
+          color: comparison.isLess ? '#4CAF50' : '#FF9800' 
+        }]}>
+          {comparison.isLess 
+            ? `You spent ₹${Math.abs(comparison.diff).toLocaleString()} less than last month 🎉`
+            : `You spent ₹${comparison.diff.toLocaleString()} more than last month ⚠️`
+          }
+        </Text>
+      </View>
+    </Animated.View>
+  );
+};
+
+// ============== 5. SAVINGS STREAK ==============
+const SavingsStreakSection = ({ streak }: { streak: number }) => {
+  const { theme, isDark } = useTheme();
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.timing(fadeAnim, {
+      toValue: 1,
+      duration: 600,
+      delay: 500,
+      useNativeDriver: true,
+    }).start();
+  }, []);
+
+  return (
+    <Animated.View style={{ opacity: fadeAnim }}>
+      <View style={[styles.streakBox, { 
+        backgroundColor: isDark ? 'rgba(232, 180, 248, 0.15)' : 'rgba(212, 165, 165, 0.2)' 
+      }]}>
+        <Text style={[styles.streakText, { color: theme.primaryText }]}>
+          🔥 {streak}-month saving streak
+        </Text>
+      </View>
+    </Animated.View>
+  );
+};
+
+// ============== 6. CIRCULAR PROGRESS + CATEGORIES ==============
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
 const ProgressWithCategories = ({ 
-  savingPercentage, 
-  monthlyBudget,
-  savingDuration,
-  categories,
-  transactions
+  onboardingData,
+  transactions,
+  savedSoFar
 }: { 
-  savingPercentage?: number; 
-  monthlyBudget?: number;
-  savingDuration?: SavingDuration | null;
-  categories: string[];
+  onboardingData: UserOnboardingData | null;
   transactions: Transaction[];
+  savedSoFar: number;
 }) => {
   const { theme, isDark } = useTheme();
   const progressAnim = useRef(new Animated.Value(0)).current;
@@ -787,20 +1044,8 @@ const ProgressWithCategories = ({
     ]).start();
   }, [transactions]);
 
-  const clampedPercentage = Math.max(0, Math.min(100, savingPercentage || 0));
-  const monthlySavingAmount = monthlyBudget ? (monthlyBudget * clampedPercentage) / 100 : 0;
-  
-  let durationInMonths = 6;
-  if (savingDuration) {
-    const value = savingDuration.value || 1;
-    const unit = savingDuration.unit || 'years';
-    durationInMonths = unit === 'years' ? value * 12 : value;
-  }
-  
-  const goalAmount = durationInMonths * monthlySavingAmount;
-  const totalSpent = transactions.filter(t => t.affectsBudget && t.type === 'expense').reduce((sum, t) => sum + t.amount, 0);
-  const currentSaved = Math.max(0, (monthlyBudget || 0) - totalSpent);
-  const percentage = goalAmount > 0 ? Math.min((currentSaved / goalAmount) * 100, 100) : 0;
+  const goalAmount = onboardingData?.savingAmount || 0;
+  const percentage = goalAmount > 0 ? Math.min((savedSoFar / goalAmount) * 100, 100) : 0;
 
   const progressRadius = 65;
   const progressStrokeWidth = 10;
@@ -810,7 +1055,7 @@ const ProgressWithCategories = ({
     outputRange: [progressCircumference, progressCircumference - (percentage / 100) * progressCircumference],
   });
 
-  // Calculate category spending
+  // Calculate category spending from real transactions
   const categorySpending = new Map<string, { amount: number; count: number }>();
   transactions.filter(t => t.affectsBudget && t.type === 'expense').forEach(t => {
     const current = categorySpending.get(t.category) || { amount: 0, count: 0 };
@@ -822,7 +1067,7 @@ const ProgressWithCategories = ({
 
   const totalSpending = Array.from(categorySpending.values()).reduce((sum, cat) => sum + cat.amount, 0);
 
-  const categoryData = categories.map((cat) => {
+  const categoryData = (onboardingData?.categories || []).map((cat) => {
     const data = categorySpending.get(cat) || { amount: 0, count: 0 };
     return {
       name: cat,
@@ -843,7 +1088,7 @@ const ProgressWithCategories = ({
         end={{ x: 1, y: 1 }}
       >
         <Text style={[styles.sectionTitle, { color: theme.primaryText, marginBottom: 20 }]}>
-          Savings Progress
+          Overall Savings Progress
         </Text>
 
         <View style={styles.circularSection}>
@@ -872,13 +1117,13 @@ const ProgressWithCategories = ({
           
           <View style={styles.circularTextContainer}>
             <Text style={[styles.savedAmount, { color: theme.primaryText }]}>
-              ₹{Math.floor(currentSaved)}
+              ₹{Math.floor(savedSoFar).toLocaleString()}
             </Text>
             <Text style={[styles.savedLabel, { color: theme.secondaryText }]}>
               saved
             </Text>
             <Text style={[styles.goalAmount, { color: theme.secondaryText }]}>
-              of ₹{Math.floor(goalAmount)}
+              of ₹{goalAmount.toLocaleString()}
             </Text>
           </View>
         </View>
@@ -946,16 +1191,15 @@ const getCategoryIcon = (category: string): string => {
   return icons[category] || '💰';
 };
 
-// ============== 4. MONTH PROGRESS + CALENDAR ==============
-
+// ============== 7. MONTH PROGRESS + CALENDAR ==============
 const MonthCalendarSection = ({ 
-  savingDuration,
-  monthlyBudget,
+  onboardingData,
+  currentMonthBudget,
   totalSpent,
   selectedMonth
 }: { 
-  savingDuration?: SavingDuration | null;
-  monthlyBudget?: number;
+  onboardingData: UserOnboardingData | null;
+  currentMonthBudget: MonthlyBudget | null;
   totalSpent: number;
   selectedMonth: string;
 }) => {
@@ -981,13 +1225,15 @@ const MonthCalendarSection = ({
   const daysLeft = isCurrentMonth ? daysInMonth - currentDay : daysInMonth;
 
   let totalMonths = 6;
-  if (savingDuration) {
-    const value = savingDuration.value || 1;
-    const unit = savingDuration.unit || 'years';
+  if (onboardingData?.savingDuration) {
+    const value = onboardingData.savingDuration.value || 1;
+    const unit = onboardingData.savingDuration.unit || 'years';
     totalMonths = unit === 'years' ? value * 12 : value;
   }
 
-  const remaining = (monthlyBudget || 0) - totalSpent;
+  // Use Firestore budget data
+  const monthlyBudget = currentMonthBudget?.initialBudget || onboardingData?.monthlyBudget || 0;
+  const remaining = currentMonthBudget?.remainingBudget || (monthlyBudget - totalSpent);
 
   return (
     <Animated.View style={{ opacity: fadeAnim }}>
@@ -1010,7 +1256,7 @@ const MonthCalendarSection = ({
               Budget:
             </Text>
             <Text style={[styles.monthValue, { color: theme.primaryText }]}>
-              ₹{monthlyBudget || 0}
+              ₹{monthlyBudget.toLocaleString()}
             </Text>
           </View>
           <View style={styles.monthStats}>
@@ -1018,7 +1264,7 @@ const MonthCalendarSection = ({
               Spent:
             </Text>
             <Text style={[styles.monthValue, { color: '#F44336' }]}>
-              ₹{Math.floor(totalSpent)}
+              ₹{Math.floor(totalSpent).toLocaleString()}
             </Text>
           </View>
           <View style={styles.monthStats}>
@@ -1026,7 +1272,7 @@ const MonthCalendarSection = ({
               Remaining:
             </Text>
             <Text style={[styles.monthValue, { color: remaining >= 0 ? '#4CAF50' : '#F44336' }]}>
-              ₹{Math.floor(remaining)}
+              ₹{Math.floor(remaining).toLocaleString()}
             </Text>
           </View>
         </LinearGradient>
@@ -1057,8 +1303,7 @@ const MonthCalendarSection = ({
   );
 };
 
-// ============== 5. SMS AND CSV IMPORT BOXES ==============
-
+// ============== 8. SMS AND CSV IMPORT BOXES ==============
 const ImportBoxes = () => {
   const { theme, isDark } = useTheme();
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -1133,8 +1378,7 @@ const ImportBoxes = () => {
   );
 };
 
-// ============== 6. CATEGORIES BREAKDOWN ==============
-
+// ============== 9. CATEGORIES BREAKDOWN ==============
 const CategoriesBreakdown = ({ 
   categories, 
   transactions,
@@ -1156,7 +1400,7 @@ const CategoriesBreakdown = ({
     }).start();
   }, []);
 
-  // Calculate category spending
+  // Calculate category spending from real Firestore transactions
   const categorySpending = new Map<string, { amount: number; count: number }>();
   transactions.filter(t => t.affectsBudget && t.type === 'expense').forEach(t => {
     const current = categorySpending.get(t.category) || { amount: 0, count: 0 };
@@ -1194,7 +1438,10 @@ const CategoriesBreakdown = ({
           end={{ x: 1, y: 1 }}
         >
           <Text style={[styles.emptyStateText, { color: theme.secondaryText }]}>
-            No spending data yet. Import transactions to see breakdown.
+            {transactions.length === 0 
+              ? "No transactions yet. Import SMS or bank statements to see breakdown."
+              : "Full budget saved 💚"
+            }
           </Text>
         </LinearGradient>
       ) : (
@@ -1228,7 +1475,7 @@ const CategoriesBreakdown = ({
               
               <View style={styles.categoryBreakdownRight}>
                 <Text style={[styles.categoryBreakdownAmount, { color: theme.primaryText }]}>
-                  ₹{Math.floor(cat.amount)}
+                  ₹{Math.floor(cat.amount).toLocaleString()}
                 </Text>
                 <Text style={[styles.categoryBreakdownPercent, { color: theme.secondaryText }]}>
                   {cat.percentage.toFixed(1)}% of budget
@@ -1256,8 +1503,7 @@ const CategoriesBreakdown = ({
   );
 };
 
-// ============== 7. RECENT TRANSACTIONS ==============
-
+// ============== 10. RECENT TRANSACTIONS ==============
 const RecentTransactionsSection = ({ transactions }: { transactions: Transaction[] }) => {
   const { theme, isDark } = useTheme();
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -1271,10 +1517,8 @@ const RecentTransactionsSection = ({ transactions }: { transactions: Transaction
     }).start();
   }, []);
 
-  // Get latest 5 transactions
-  const recentTransactions = transactions
-    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-    .slice(0, 5);
+  // Get latest 5 transactions from Firestore
+  const recentTransactions = transactions.slice(0, 5);
 
   return (
     <Animated.View style={{ opacity: fadeAnim }}>
@@ -1331,7 +1575,7 @@ const RecentTransactionsSection = ({ transactions }: { transactions: Transaction
                 <Text style={[styles.transactionAmount, { 
                   color: transaction.type === 'income' ? '#4CAF50' : '#F44336' 
                 }]}>
-                  {transaction.type === 'income' ? '+' : '-'}₹{Math.floor(transaction.amount)}
+                  {transaction.type === 'income' ? '+' : '-'}₹{Math.floor(transaction.amount).toLocaleString()}
                 </Text>
                 <View style={[styles.transactionBadge, { 
                   backgroundColor: isDark ? 'rgba(232, 180, 248, 0.2)' : 'rgba(212, 165, 165, 0.25)' 
@@ -1350,7 +1594,6 @@ const RecentTransactionsSection = ({ transactions }: { transactions: Transaction
 };
 
 // ============== STYLES ==============
-
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -1426,6 +1669,82 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
     letterSpacing: 0.3,
+  },
+  // Savings Progress Styles
+  savingsProgressBox: {
+    borderRadius: 24,
+    padding: 20,
+    marginBottom: 20,
+    borderWidth: 2,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.15,
+    shadowRadius: 16,
+    elevation: 8,
+  },
+  savingsGoalInfo: {
+    marginBottom: 16,
+  },
+  savingsGoalLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  segmentedProgressBar: {
+    flexDirection: 'row',
+    height: 8,
+    borderRadius: 4,
+    marginBottom: 12,
+    gap: 2,
+  },
+  progressSegment: {
+    flex: 1,
+    borderRadius: 2,
+  },
+  progressLabel: {
+    fontSize: 14,
+    fontWeight: '700',
+    textAlign: 'center',
+    marginBottom: 12,
+  },
+  savingsAmountInfo: {
+    alignItems: 'center',
+  },
+  savedAmountText: {
+    fontSize: 16,
+    fontWeight: '800',
+    marginBottom: 4,
+  },
+  progressPercentText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  // Comparison Styles
+  comparisonBox: {
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  comparisonText: {
+    fontSize: 14,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  // Streak Styles
+  streakBox: {
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  streakText: {
+    fontSize: 16,
+    fontWeight: '800',
+    textAlign: 'center',
   },
   tabBar: { 
     position: 'absolute',
