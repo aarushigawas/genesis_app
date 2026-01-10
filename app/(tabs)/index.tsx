@@ -244,10 +244,48 @@ const AnimatedButton = ({ title, onPress, isPrimary }: any) => {
 export default function WelcomeScreen() {
   const router = useRouter();
   const { theme, isDark } = useTheme();
+
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(30)).current;
 
+  const [showIntro, setShowIntro] = useState(true);
+
+  const introOpacity = useRef(new Animated.Value(1)).current;
+  const introScale = useRef(new Animated.Value(0.6)).current;
+  const introLetterSpacing = useRef(new Animated.Value(30)).current;
+
+
   useEffect(() => {
+  Animated.sequence([
+    // FINORA intro
+    Animated.parallel([
+      Animated.timing(introOpacity, {
+        toValue: 1,
+        duration: 800,
+        useNativeDriver: true,
+      }),
+      Animated.spring(introScale, {
+        toValue: 1,
+        friction: 6,
+        tension: 40,
+        useNativeDriver: true,
+      }),
+    ]),
+    Animated.timing(introLetterSpacing, {
+      toValue: 8,
+      duration: 900,
+      useNativeDriver: false, // letterSpacing can't use native driver
+    }),
+    Animated.delay(600),
+    Animated.timing(introOpacity, {
+      toValue: 0,
+      duration: 700,
+      useNativeDriver: true,
+    }),
+  ]).start(() => {
+    setShowIntro(false);
+
+    // Welcome animation (your original one)
     Animated.parallel([
       Animated.timing(fadeAnim, {
         toValue: 1,
@@ -261,7 +299,8 @@ export default function WelcomeScreen() {
         useNativeDriver: true,
       }),
     ]).start();
-  }, []);
+  });
+}, []);
 
   return (
     <View style={styles.container}>
@@ -279,6 +318,33 @@ export default function WelcomeScreen() {
 
       {/* Theme Toggle Button */}
       <ThemeToggle />
+      {showIntro && (
+  <Animated.View
+    style={[
+      StyleSheet.absoluteFill,
+      {
+        justifyContent: 'center',
+        alignItems: 'center',
+        opacity: introOpacity,
+        backgroundColor: 'transparent',
+        zIndex: 50,
+      },
+    ]}
+  >
+    <Animated.Text
+      style={{
+        fontSize: 64,
+        fontWeight: '700',
+        color: '#FFFFFF',
+        letterSpacing: introLetterSpacing,
+        transform: [{ scale: introScale }],
+      }}
+    >
+      FINORA
+    </Animated.Text>
+  </Animated.View>
+)}
+
 
       <Animated.View
         style={[
