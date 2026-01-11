@@ -69,9 +69,10 @@ interface Transaction {
 }
 
 interface MonthlyBudget {
-  initialBudget: number;
+  startingBudget: number;
   remainingBudget: number;
-  overdrawn: boolean;
+  newBudget?: number;
+  totalExpenses?: number;
   updatedAt: any;
 }
 
@@ -416,29 +417,40 @@ export default function Dashboard() {
     return { totalSpent, totalIncome };
   };
 
-  // Calculate savings progress from historical budgets (NEVER from transactions)
+  // Calculate savings progress from historical budgets
   const calculateSavingsProgress = () => {
     if (!onboardingData?.savingAmount || !onboardingData?.savingDuration) {
-      return { savedSoFar: 0, progressPercent: 0 };
+      return { savedSoFar: 0, progressPercent: 0, totalSavingsGoal: 0 };
     }
 
+    const durationInMonths = onboardingData.savingDuration.unit === 'years' 
+      ? onboardingData.savingDuration.value * 12 
+      : onboardingData.savingDuration.value;
+
+    const totalSavingsGoal = onboardingData.savingAmount;
+    
     let savedSoFar = 0;
     
     // Sum savings from all historical months
     Object.values(historicalBudgets).forEach(budget => {
-      if (budget.remainingBudget > 0) {
-        savedSoFar += budget.remainingBudget;
-      } else if (budget.remainingBudget < 0) {
-        // Overspending reduces total savings
-        savedSoFar -= Math.abs(budget.remainingBudget);
-      }
-    });
+  if (
+    typeof budget.initialBudget === 'number' &&
+    typeof budget.remainingBudget === 'number'
+  ) {
+    const spent = budget.startingBudget - budget.remainingBudget;
+const monthlySaved = Math.max(0, budget.remainingBudget);
+savedSoFar += monthlySaved;
+  }
+});
 
-    const progressPercent = onboardingData.savingAmount > 0 
-      ? Math.min((savedSoFar / onboardingData.savingAmount) * 100, 100) 
-      : 0;
 
-    return { savedSoFar: Math.max(0, savedSoFar), progressPercent };
+    const progressPercent =
+  totalSavingsGoal > 0 && savedSoFar > 0
+    ? Math.min((savedSoFar / totalSavingsGoal) * 100, 100)
+    : 0;
+
+
+    return { savedSoFar: Math.max(0, savedSoFar), progressPercent, totalSavingsGoal };
   };
 
   // Calculate month-over-month comparison
@@ -447,8 +459,20 @@ export default function Dashboard() {
       return null;
     }
 
-    const currentSpent = currentMonthBudget.initialBudget - currentMonthBudget.remainingBudget;
-    const previousSpent = previousMonthBudget.initialBudget - previousMonthBudget.remainingBudget;
+    const currentSpent =
+  Math.max(
+    0,
+    (currentMonthBudget.initialBudget ?? 0) -
+    (currentMonthBudget.remainingBudget ?? 0)
+  );
+
+const previousSpent =
+  Math.max(
+    0,
+    (previousMonthBudget.initialBudget ?? 0) -
+    (previousMonthBudget.remainingBudget ?? 0)
+  );
+
     const diff = currentSpent - previousSpent;
 
     return {
@@ -477,7 +501,7 @@ export default function Dashboard() {
   };
 
   const { totalSpent, totalIncome } = calculateStats();
-  const { savedSoFar, progressPercent } = calculateSavingsProgress();
+  const { savedSoFar, progressPercent, totalSavingsGoal } = calculateSavingsProgress();
   const monthComparison = calculateMonthComparison();
   const savingsStreak = calculateSavingsStreak();
 
@@ -553,6 +577,8 @@ export default function Dashboard() {
           onboardingData={onboardingData}
           currentMonthBudget={currentMonthBudget}
           totalSpent={totalSpent}
+          totalSavingsGoal={totalSavingsGoal}
+          savedSoFar={savedSoFar}
         />
 
         {/* 3. Savings Progress (Multi-Month Segmented Bar) */}
@@ -560,6 +586,7 @@ export default function Dashboard() {
           onboardingData={onboardingData}
           savedSoFar={savedSoFar}
           progressPercent={progressPercent}
+          totalSavingsGoal={totalSavingsGoal}
         />
 
         {/* 4. Month Comparison */}
@@ -572,6 +599,7 @@ export default function Dashboard() {
           onboardingData={onboardingData}
           transactions={transactions}
           savedSoFar={savedSoFar}
+          totalSavingsGoal={totalSavingsGoal}
         />
 
         {/* 6. Month Progress + Calendar */}
@@ -732,11 +760,15 @@ const QuoteBox = ({ savingPurpose }: { savingPurpose?: SavingPurpose | null }) =
 const AirplaneProgress = ({ 
   onboardingData,
   currentMonthBudget,
-  totalSpent
+  totalSpent,
+  totalSavingsGoal,
+  savedSoFar
 }: { 
   onboardingData: UserOnboardingData | null;
   currentMonthBudget: MonthlyBudget | null;
   totalSpent: number;
+  totalSavingsGoal: number;
+  savedSoFar: number;
 }) => {
   const { theme, isDark } = useTheme();
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -758,20 +790,16 @@ const AirplaneProgress = ({
     }).start();
   }, [totalSpent]);
 
-  // Calculate progress based on Firestore budget data
+  // Calculate progress based on total savings goal
   const calculateProgress = () => {
-    if (!onboardingData?.savingAmount || !onboardingData?.savingDuration || !currentMonthBudget) {
+    if (!totalSavingsGoal || totalSavingsGoal === 0) {
       return 0;
     }
     
-    const durationInMonths = onboardingData.savingDuration.unit === 'years' 
-      ? onboardingData.savingDuration.value * 12 
-      : onboardingData.savingDuration.value;
-    
-    const monthlyTarget = onboardingData.savingAmount / durationInMonths;
-    const currentSaved = Math.max(0, currentMonthBudget.remainingBudget);
-    
-    return monthlyTarget > 0 ? Math.min((currentSaved / monthlyTarget) * 100, 100) : 0;
+    if (!totalSavingsGoal || savedSoFar <= 0) return 0;
+
+      return Math.min((savedSoFar / totalSavingsGoal) * 100, 100);
+
   };
 
   const progress = calculateProgress();
@@ -782,9 +810,12 @@ const AirplaneProgress = ({
 
   // Use Firestore budget data instead of calculations
   const monthlyBudget = currentMonthBudget?.initialBudget || onboardingData?.monthlyBudget || 0;
-  const remaining = currentMonthBudget?.remainingBudget || (monthlyBudget - totalSpent);
+  const remaining = currentMonthBudget?.remainingBudget ?? (monthlyBudget - totalSpent);
+
   const isOverBudget = remaining < 0;
-  const currentSaved = Math.max(0, remaining);
+  const currentSaved = currentMonthBudget
+  ? Math.max(0, currentMonthBudget.remainingBudget)
+  : 0;
 
   return (
     <Animated.View style={{ opacity: fadeAnim }}>
@@ -869,11 +900,13 @@ const AirplaneProgress = ({
 const SavingsProgressSection = ({
   onboardingData,
   savedSoFar,
-  progressPercent
+  progressPercent,
+  totalSavingsGoal
 }: {
   onboardingData: UserOnboardingData | null;
   savedSoFar: number;
   progressPercent: number;
+  totalSavingsGoal: number;
 }) => {
   const { theme, isDark } = useTheme();
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -895,7 +928,16 @@ const SavingsProgressSection = ({
     ? onboardingData.savingDuration.value * 12 
     : onboardingData.savingDuration.value;
 
-  const currentMonth = Math.min(Math.ceil(progressPercent / 100 * durationInMonths), durationInMonths);
+  // Calculate current month based on when they signed up
+  const onboardingDate = onboardingData?.onboardingCompletedAt?.toDate ? 
+    onboardingData.onboardingCompletedAt.toDate() : 
+    new Date(onboardingData?.onboardingCompletedAt || Date.now());
+  
+  const now = new Date();
+  const monthsSinceOnboarding = (now.getFullYear() - onboardingDate.getFullYear()) * 12 + 
+    (now.getMonth() - onboardingDate.getMonth()) + 1; // +1 so first month is always 1
+  
+  const currentMonth = Math.min(Math.max(1, monthsSinceOnboarding), durationInMonths);
 
   return (
     <Animated.View style={{ opacity: fadeAnim }}>
@@ -914,7 +956,7 @@ const SavingsProgressSection = ({
 
         <View style={styles.savingsGoalInfo}>
           <Text style={[styles.savingsGoalLabel, { color: theme.secondaryText }]}>
-            Savings Goal: ₹{onboardingData.savingAmount.toLocaleString()}
+            Total Savings Goal: ₹{totalSavingsGoal.toLocaleString()}
           </Text>
           <Text style={[styles.savingsGoalLabel, { color: theme.secondaryText }]}>
             Duration: {onboardingData.savingDuration.value} {onboardingData.savingDuration.unit}
@@ -943,7 +985,7 @@ const SavingsProgressSection = ({
 
         <View style={styles.savingsAmountInfo}>
           <Text style={[styles.savedAmountText, { color: theme.primaryText }]}>
-            Saved: ₹{Math.floor(savedSoFar).toLocaleString()} / ₹{onboardingData.savingAmount.toLocaleString()}
+            Saved: ₹{Math.floor(savedSoFar).toLocaleString()} / ₹{totalSavingsGoal.toLocaleString()}
           </Text>
           <Text style={[styles.progressPercentText, { color: theme.secondaryText }]}>
             {progressPercent.toFixed(1)}% Complete
@@ -1019,11 +1061,13 @@ const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 const ProgressWithCategories = ({ 
   onboardingData,
   transactions,
-  savedSoFar
+  savedSoFar,
+  totalSavingsGoal
 }: { 
   onboardingData: UserOnboardingData | null;
   transactions: Transaction[];
   savedSoFar: number;
+  totalSavingsGoal: number;
 }) => {
   const { theme, isDark } = useTheme();
   const progressAnim = useRef(new Animated.Value(0)).current;
@@ -1046,8 +1090,7 @@ const ProgressWithCategories = ({
     ]).start();
   }, [transactions]);
 
-  const goalAmount = onboardingData?.savingAmount || 0;
-  const percentage = goalAmount > 0 ? Math.min((savedSoFar / goalAmount) * 100, 100) : 0;
+  const percentage = totalSavingsGoal > 0 ? Math.min((savedSoFar / totalSavingsGoal) * 100, 100) : 0;
 
   const progressRadius = 65;
   const progressStrokeWidth = 10;
@@ -1125,7 +1168,7 @@ const ProgressWithCategories = ({
               saved
             </Text>
             <Text style={[styles.goalAmount, { color: theme.secondaryText }]}>
-              of ₹{goalAmount.toLocaleString()}
+              of ₹{totalSavingsGoal.toLocaleString()}
             </Text>
           </View>
         </View>
@@ -1227,10 +1270,23 @@ const MonthCalendarSection = ({
   const daysLeft = isCurrentMonth ? daysInMonth - currentDay : daysInMonth;
 
   let totalMonths = 6;
+  let currentMonthNumber = 1;
+  
   if (onboardingData?.savingDuration) {
     const value = onboardingData.savingDuration.value || 1;
     const unit = onboardingData.savingDuration.unit || 'years';
     totalMonths = unit === 'years' ? value * 12 : value;
+    
+    // Calculate current month based on when they signed up
+    const onboardingDate = onboardingData?.onboardingCompletedAt?.toDate ? 
+      onboardingData.onboardingCompletedAt.toDate() : 
+      new Date(onboardingData?.onboardingCompletedAt || Date.now());
+    
+    const now = new Date();
+    const monthsSinceOnboarding = (now.getFullYear() - onboardingDate.getFullYear()) * 12 + 
+      (now.getMonth() - onboardingDate.getMonth()) + 1; // +1 so first month is always 1
+    
+    currentMonthNumber = Math.min(Math.max(1, monthsSinceOnboarding), totalMonths);
   }
 
   // Use Firestore budget data
@@ -1251,7 +1307,7 @@ const MonthCalendarSection = ({
           end={{ x: 1, y: 1 }}
         >
           <Text style={[styles.monthTitle, { color: theme.primaryText }]}>
-            Month {Math.min(parseInt(month), totalMonths)} of {totalMonths}
+            Month {currentMonthNumber} of {totalMonths}
           </Text>
           <View style={styles.monthStats}>
             <Text style={[styles.monthLabel, { color: theme.secondaryText }]}>
