@@ -359,17 +359,18 @@ export default function SignUpOptionsScreen() {
         </View>
 
         <View style={styles.buttonContainer}>
-          <GoogleAuth 
+           
+          {/*
+          <GoogleAuth
             onSuccess={handleGoogleSignInSuccess}
             onError={handleGoogleSignInError}
             disabled={loading}
           />
+*/}
+
           
-          <View style={styles.divider}>
-            <View style={[styles.dividerLine, { backgroundColor: theme.tertiaryText }]} />
-            <Text style={[styles.dividerText, { color: theme.tertiaryText }]}>OR</Text>
-            <View style={[styles.dividerLine, { backgroundColor: theme.tertiaryText }]} />
-          </View>
+          
+          
           
           <AnimatedButton
             title="Sign up with Email"

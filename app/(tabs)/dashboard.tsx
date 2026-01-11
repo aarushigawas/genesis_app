@@ -1,7 +1,8 @@
 // app/(tabs)/dashboard.tsx - COMPLETE FIRESTORE INTEGRATION
+import { useFocusEffect } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
-import { collection, doc, getDoc, getDocs, query, where, orderBy, limit } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, limit, orderBy, query, where } from 'firebase/firestore';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -18,7 +19,6 @@ import {
 import { Circle, Defs, Stop, Svg, RadialGradient as SvgRadialGradient } from 'react-native-svg';
 import { useTheme } from '../../contexts/ThemeContext';
 import { auth, db } from '../../src2/firebase/config';
-import { useFocusEffect } from '@react-navigation/native';
 
 const { width, height } = Dimensions.get('window');
 
@@ -226,6 +226,7 @@ const BottomTabBar = ({ activeTab }: { activeTab: string }) => {
     settings: useRef(new Animated.Value(1)).current,
     profile: useRef(new Animated.Value(1)).current,
     transactions: useRef(new Animated.Value(1)).current,
+    budgetpredictions: useRef(new Animated.Value(1)).current,
   };
 
   const tabs = [
@@ -234,6 +235,7 @@ const BottomTabBar = ({ activeTab }: { activeTab: string }) => {
     { id: 'analytics', label: 'Analytics', icon: '📈', route: '/(tabs)/analytics' },
     { id: 'settings', label: 'Settings', icon: '⚙️', route: '/(tabs)/settings' },
     { id: 'profile', label: 'Profile', icon: '👤', route: '/(tabs)/profile' },
+    { id: 'budgetpredictions', label: 'Predictions', icon: '🔮', route: '/(tabs)/budgetpredictions' },
   ];
 
   const handlePressIn = (tabId: string) => {

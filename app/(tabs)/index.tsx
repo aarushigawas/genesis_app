@@ -250,57 +250,64 @@ export default function WelcomeScreen() {
 
   const [showIntro, setShowIntro] = useState(true);
 
-  const introOpacity = useRef(new Animated.Value(1)).current;
-  const introScale = useRef(new Animated.Value(0.6)).current;
+  // ✅ FIXED: Separate animated values for different drivers
+  // Container animations (native driver) - for opacity and scale
+  const introContainerOpacity = useRef(new Animated.Value(1)).current;
+  const introContainerScale = useRef(new Animated.Value(0.6)).current;
+  
+  // Text-specific animation (JS driver) - for letterSpacing only
   const introLetterSpacing = useRef(new Animated.Value(30)).current;
 
-
   useEffect(() => {
-  Animated.sequence([
-    // FINORA intro
-    Animated.parallel([
-      Animated.timing(introOpacity, {
-        toValue: 1,
-        duration: 800,
-        useNativeDriver: true,
-      }),
-      Animated.spring(introScale, {
-        toValue: 1,
-        friction: 6,
-        tension: 40,
-        useNativeDriver: true,
-      }),
-    ]),
-    Animated.timing(introLetterSpacing, {
-      toValue: 8,
-      duration: 900,
-      useNativeDriver: false, // letterSpacing can't use native driver
-    }),
-    Animated.delay(600),
-    Animated.timing(introOpacity, {
-      toValue: 0,
-      duration: 700,
-      useNativeDriver: true,
-    }),
-  ]).start(() => {
-    setShowIntro(false);
-
-    // Welcome animation (your original one)
-    Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 1000,
-        useNativeDriver: true,
-      }),
-      Animated.spring(slideAnim, {
+    // ✅ FIXED: Run native and JS animations in parallel on SEPARATE nodes
+    Animated.sequence([
+      // Phase 1: Fade in + scale up (NATIVE driver on container)
+      Animated.parallel([
+        Animated.timing(introContainerOpacity, {
+          toValue: 1,
+          duration: 800,
+          useNativeDriver: true, // ✅ Native driver for opacity
+        }),
+        Animated.spring(introContainerScale, {
+          toValue: 1,
+          friction: 6,
+          tension: 40,
+          useNativeDriver: true, // ✅ Native driver for scale
+        }),
+        // Letter spacing animates simultaneously on the TEXT node (JS driver)
+        Animated.timing(introLetterSpacing, {
+          toValue: 8,
+          duration: 1700, // Total time of phase 1 + phase 2 (800 + 900)
+          useNativeDriver: false, // ✅ JS driver for letterSpacing
+        }),
+      ]),
+      // Phase 2: Hold
+      Animated.delay(600),
+      // Phase 3: Fade out (NATIVE driver on container)
+      Animated.timing(introContainerOpacity, {
         toValue: 0,
-        tension: 20,
-        friction: 7,
-        useNativeDriver: true,
+        duration: 700,
+        useNativeDriver: true, // ✅ Native driver for opacity
       }),
-    ]).start();
-  });
-}, []);
+    ]).start(() => {
+      setShowIntro(false);
+
+      // Welcome screen animation
+      Animated.parallel([
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: 1000,
+          useNativeDriver: true,
+        }),
+        Animated.spring(slideAnim, {
+          toValue: 0,
+          tension: 20,
+          friction: 7,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    });
+  }, []);
 
   return (
     <View style={styles.container}>
@@ -318,34 +325,38 @@ export default function WelcomeScreen() {
 
       {/* Theme Toggle Button */}
       <ThemeToggle />
+
+      {/* ✅ FIXED: FINORA Intro - Separated into two animated nodes */}
       {showIntro && (
-  <Animated.View
-    style={[
-      StyleSheet.absoluteFill,
-      {
-        justifyContent: 'center',
-        alignItems: 'center',
-        opacity: introOpacity,
-        backgroundColor: 'transparent',
-        zIndex: 50,
-      },
-    ]}
-  >
-    <Animated.Text
-      style={{
-        fontSize: 64,
-        fontWeight: '700',
-        color: '#FFFFFF',
-        letterSpacing: introLetterSpacing,
-        transform: [{ scale: introScale }],
-      }}
-    >
-      FINORA
-    </Animated.Text>
-  </Animated.View>
-)}
+        <Animated.View
+          style={[
+            StyleSheet.absoluteFill,
+            {
+              justifyContent: 'center',
+              alignItems: 'center',
+              backgroundColor: 'transparent',
+              zIndex: 50,
+              // ✅ Container handles opacity and scale (native driver)
+              opacity: introContainerOpacity,
+              transform: [{ scale: introContainerScale }],
+            },
+          ]}
+        >
+          {/* ✅ Text handles ONLY letterSpacing (JS driver) */}
+          <Animated.Text
+            style={{
+              fontSize: 64,
+              fontWeight: '700',
+              color: '#FFFFFF',
+              letterSpacing: introLetterSpacing, // ✅ JS-driven property on separate node
+            }}
+          >
+            FINORA
+          </Animated.Text>
+        </Animated.View>
+      )}
 
-
+      {/* Main Content */}
       <Animated.View
         style={[
           styles.content,
@@ -381,7 +392,7 @@ export default function WelcomeScreen() {
           </View>
         </View>
 
-        {/* Buttons - Updated routes */}
+        {/* Buttons */}
         <View style={styles.buttonContainer}>
           <AnimatedButton
             title="Log In"

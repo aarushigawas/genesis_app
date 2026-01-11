@@ -1,23 +1,32 @@
 // app/(tabs)/transactions.tsx
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
-import React from 'react';
+import React, { useState } from 'react';
 import {
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { useTheme } from '../../contexts/ThemeContext';
-
-/**
- * NOTE:
- * This screen is only an ENTRY POINT.
- * Actual parsing happens in /parsing/*
- */
+import CategoryBudgetSheet from './transactions/CategoryBudgetSheet';
+import MonthTabs from './transactions/MonthTabs';
+import SearchBar from './transactions/SearchBar';
+import TransactionList from './transactions/TransactionList';
 
 export default function TransactionsTab() {
   const { theme, isDark } = useTheme();
+  const [selectedMonth, setSelectedMonth] = useState<string>('ALL');
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [budgetSheetVisible, setBudgetSheetVisible] = useState<boolean>(false);
+  const [budgetSheetMonth, setBudgetSheetMonth] = useState<string>('');
+
+  const handleManageBudgets = () => {
+    const currentMonth = new Date().toISOString().slice(0, 7);
+    setBudgetSheetMonth(currentMonth);
+    setBudgetSheetVisible(true);
+  };
 
   return (
     <View style={styles.container}>
@@ -31,78 +40,127 @@ export default function TransactionsTab() {
       />
 
       {/* Content */}
-      <View style={styles.content}>
-        <Text style={[styles.title, { color: theme.primaryText }]}>
-          Add Transactions
-        </Text>
+      <ScrollView style={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        <View style={styles.content}>
+          <Text style={[styles.title, { color: theme.primaryText }]}>
+            Transactions
+          </Text>
 
-        <Text style={[styles.subtitle, { color: theme.secondaryText }]}>
-          Import or add your expenses
-        </Text>
+          <Text style={[styles.subtitle, { color: theme.secondaryText }]}>
+            Manage your expenses
+          </Text>
 
-        {/* Paste SMS */}
-        <TouchableOpacity
-          activeOpacity={0.85}
-          onPress={() => router.push('/parsing/sms')}
-          style={styles.cardWrapper}
-        >
-          <LinearGradient
-            colors={
-              isDark
-                ? ['rgba(232, 180, 248, 0.25)', 'rgba(180, 164, 248, 0.15)']
-                : ['rgba(212, 165, 165, 0.30)', 'rgba(196, 154, 154, 0.18)']
-            }
-            style={styles.card}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
+          {/* Add Transaction Cards */}
+          <View style={styles.addSection}>
+            {/* Paste SMS */}
+            <TouchableOpacity
+              activeOpacity={0.85}
+              onPress={() => router.push('/parsing/sms')}
+              style={styles.cardWrapper}
+            >
+              <LinearGradient
+                colors={
+                  isDark
+                    ? ['rgba(232, 180, 248, 0.25)', 'rgba(180, 164, 248, 0.15)']
+                    : ['rgba(212, 165, 165, 0.30)', 'rgba(196, 154, 154, 0.18)']
+                }
+                style={styles.card}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+              >
+                <Text style={styles.emoji}>💬</Text>
+                <Text style={[styles.cardTitle, { color: theme.primaryText }]}>
+                  Paste SMS
+                </Text>
+                <Text style={[styles.cardSubtitle, { color: theme.secondaryText }]}>
+                  Copy & paste bank messages
+                </Text>
+              </LinearGradient>
+            </TouchableOpacity>
+
+            {/* CSV / PDF */}
+            <TouchableOpacity
+              activeOpacity={0.85}
+              onPress={() => router.push('/parsing/csv')}
+              style={styles.cardWrapper}
+            >
+              <LinearGradient
+                colors={
+                  isDark
+                    ? ['rgba(232, 180, 248, 0.25)', 'rgba(180, 164, 248, 0.15)']
+                    : ['rgba(212, 165, 165, 0.30)', 'rgba(196, 154, 154, 0.18)']
+                }
+                style={styles.card}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+              >
+                <Text style={styles.emoji}>🏦</Text>
+                <Text style={[styles.cardTitle, { color: theme.primaryText }]}>
+                  Bank Statement
+                </Text>
+                <Text style={[styles.cardSubtitle, { color: theme.secondaryText }]}>
+                  Upload CSV or PDF
+                </Text>
+              </LinearGradient>
+            </TouchableOpacity>
+          </View>
+
+          {/* Manage Budgets Button */}
+          <TouchableOpacity
+            activeOpacity={0.85}
+            onPress={handleManageBudgets}
+            style={styles.manageBudgetButton}
           >
-            <Text style={styles.emoji}>💬</Text>
-            <Text style={[styles.cardTitle, { color: theme.primaryText }]}>
-              Paste SMS
-            </Text>
-            <Text style={[styles.cardSubtitle, { color: theme.secondaryText }]}>
-              Copy & paste bank messages
-            </Text>
-          </LinearGradient>
-        </TouchableOpacity>
+            <LinearGradient
+              colors={
+                isDark
+                  ? ['rgba(180, 164, 248, 0.30)', 'rgba(232, 180, 248, 0.20)']
+                  : ['rgba(196, 154, 154, 0.35)', 'rgba(212, 165, 165, 0.25)']
+              }
+              style={styles.manageBudgetGradient}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+            >
+              <Text style={[styles.manageBudgetText, { color: theme.primaryText }]}>
+                📊 Manage Category Budgets
+              </Text>
+            </LinearGradient>
+          </TouchableOpacity>
 
-        {/* CSV / PDF */}
-        <TouchableOpacity
-          activeOpacity={0.85}
-          onPress={() => router.push('/parsing/csv')}
-          style={styles.cardWrapper}
-        >
-          <LinearGradient
-            colors={
-              isDark
-                ? ['rgba(232, 180, 248, 0.25)', 'rgba(180, 164, 248, 0.15)']
-                : ['rgba(212, 165, 165, 0.30)', 'rgba(196, 154, 154, 0.18)']
-            }
-            style={styles.card}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-          >
-            <Text style={styles.emoji}>🏦</Text>
-            <Text style={[styles.cardTitle, { color: theme.primaryText }]}>
-              Bank Statement
-            </Text>
-            <Text style={[styles.cardSubtitle, { color: theme.secondaryText }]}>
-              Upload CSV or PDF
-            </Text>
-          </LinearGradient>
-        </TouchableOpacity>
-      </View>
+          {/* Month Tabs */}
+          <MonthTabs
+            selectedMonth={selectedMonth}
+            onMonthChange={setSelectedMonth}
+          />
+
+          {/* Search Bar */}
+          <SearchBar
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+          />
+
+          {/* Transaction List */}
+          <TransactionList
+            selectedMonth={selectedMonth}
+            searchQuery={searchQuery}
+          />
+        </View>
+      </ScrollView>
 
       {/* Bottom Tab Bar */}
       <BottomTabBar activeTab="transactions" />
+
+      {/* Category Budget Sheet */}
+      {budgetSheetVisible && (
+        <CategoryBudgetSheet
+          visible={budgetSheetVisible}
+          initialMonth={budgetSheetMonth}
+          onClose={() => setBudgetSheetVisible(false)}
+        />
+      )}
     </View>
   );
 }
-
-/* =======================
-   BOTTOM TAB BAR
-   (same structure as dashboard, simplified)
-======================= */
 
 const BottomTabBar = ({ activeTab }: { activeTab: string }) => {
   const { theme } = useTheme();
@@ -148,18 +206,18 @@ const BottomTabBar = ({ activeTab }: { activeTab: string }) => {
   );
 };
 
-/* =======================
-   STYLES
-======================= */
-
 const styles = StyleSheet.create({
   container: {
+    flex: 1,
+  },
+  scrollContent: {
     flex: 1,
   },
   content: {
     flex: 1,
     padding: 24,
     paddingTop: 80,
+    paddingBottom: 100,
   },
   title: {
     fontSize: 34,
@@ -169,10 +227,13 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: 15,
     fontWeight: '600',
-    marginBottom: 32,
+    marginBottom: 24,
+  },
+  addSection: {
+    marginBottom: 24,
   },
   cardWrapper: {
-    marginBottom: 20,
+    marginBottom: 16,
   },
   card: {
     borderRadius: 24,
@@ -199,6 +260,20 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
     textAlign: 'center',
+  },
+  manageBudgetButton: {
+    marginBottom: 24,
+  },
+  manageBudgetGradient: {
+    borderRadius: 16,
+    padding: 18,
+    alignItems: 'center',
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.15)',
+  },
+  manageBudgetText: {
+    fontSize: 16,
+    fontWeight: '700',
   },
   tabBar: {
     position: 'absolute',

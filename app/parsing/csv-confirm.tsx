@@ -4,10 +4,10 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React from 'react';
 import {
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 
 export default function CSVConfirmScreen() {
@@ -65,7 +65,7 @@ export default function CSVConfirmScreen() {
         <View style={styles.buttonGroup}>
           <TouchableOpacity
             style={styles.primaryButton}
-            onPress={() => router.push('/')}
+            onPress={() => router.push('/dashboard')}
           >
             <Text style={styles.primaryButtonText}>Go to Dashboard</Text>
           </TouchableOpacity>
