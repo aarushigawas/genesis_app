@@ -433,15 +433,15 @@ export default function Dashboard() {
     
     // Sum savings from all historical months
     Object.values(historicalBudgets).forEach(budget => {
-  if (
-    typeof budget.initialBudget === 'number' &&
-    typeof budget.remainingBudget === 'number'
-  ) {
-    const spent = budget.startingBudget - budget.remainingBudget;
-const monthlySaved = Math.max(0, budget.remainingBudget);
-savedSoFar += monthlySaved;
-  }
-});
+      if (
+        typeof budget.startingBudget === 'number' &&
+        typeof budget.remainingBudget === 'number'
+      ) {
+        const spent = budget.startingBudget - budget.remainingBudget;
+        const monthlySaved = Math.max(0, budget.remainingBudget);
+        savedSoFar += monthlySaved;
+      }
+    });
 
 
     const progressPercent =
@@ -460,18 +460,18 @@ savedSoFar += monthlySaved;
     }
 
     const currentSpent =
-  Math.max(
-    0,
-    (currentMonthBudget.initialBudget ?? 0) -
-    (currentMonthBudget.remainingBudget ?? 0)
-  );
+      Math.max(
+        0,
+        (currentMonthBudget.startingBudget ?? 0) -
+          (currentMonthBudget.remainingBudget ?? 0)
+      );
 
-const previousSpent =
-  Math.max(
-    0,
-    (previousMonthBudget.initialBudget ?? 0) -
-    (previousMonthBudget.remainingBudget ?? 0)
-  );
+    const previousSpent =
+      Math.max(
+        0,
+        (previousMonthBudget.startingBudget ?? 0) -
+          (previousMonthBudget.remainingBudget ?? 0)
+      );
 
     const diff = currentSpent - previousSpent;
 
@@ -809,7 +809,7 @@ const AirplaneProgress = ({
   });
 
   // Use Firestore budget data instead of calculations
-  const monthlyBudget = currentMonthBudget?.initialBudget || onboardingData?.monthlyBudget || 0;
+  const monthlyBudget = currentMonthBudget?.startingBudget || onboardingData?.monthlyBudget || 0;
   const remaining = currentMonthBudget?.remainingBudget ?? (monthlyBudget - totalSpent);
 
   const isOverBudget = remaining < 0;
@@ -1290,7 +1290,7 @@ const MonthCalendarSection = ({
   }
 
   // Use Firestore budget data
-  const monthlyBudget = currentMonthBudget?.initialBudget || onboardingData?.monthlyBudget || 0;
+  const monthlyBudget = currentMonthBudget?.startingBudget || onboardingData?.monthlyBudget || 0;
   const remaining = currentMonthBudget?.remainingBudget || (monthlyBudget - totalSpent);
 
   return (
