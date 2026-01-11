@@ -302,7 +302,6 @@ export default function Profile() {
       
       {isDark ? <StarBackground /> : <FloatingFlowers />}
 
-      {/* Theme Toggle Button */}
       <TouchableOpacity 
         style={styles.themeToggle}
         onPress={toggleTheme}
@@ -336,25 +335,31 @@ export default function Profile() {
           </View>
         </AnimatedCard>
 
-        <AnimatedCard onPress={() => Alert.alert("Edit Profile", "Coming soon!")}>
+        <AnimatedCard onPress={() => router.push('/edit-profile')}>
           <View style={styles.menuItem}>
-            <Text style={styles.menuIcon}>✏️</Text>
+            <View style={[styles.iconCircle, { backgroundColor: isDark ? 'rgba(184, 164, 248, 0.2)' : 'rgba(212, 165, 165, 0.2)' }]}>
+              <Text style={styles.menuIcon}>👤</Text>
+            </View>
             <Text style={[styles.menuText, { color: theme.primaryText }]}>Edit Profile</Text>
             <Text style={[styles.menuArrow, { color: theme.secondaryText }]}>›</Text>
           </View>
         </AnimatedCard>
 
-        <AnimatedCard onPress={() => Alert.alert("Privacy", "Coming soon!")}>
+        <AnimatedCard onPress={() => router.push('/privacy')}>
           <View style={styles.menuItem}>
-            <Text style={styles.menuIcon}>🔒</Text>
+            <View style={[styles.iconCircle, { backgroundColor: isDark ? 'rgba(184, 164, 248, 0.2)' : 'rgba(212, 165, 165, 0.2)' }]}>
+              <Text style={styles.menuIcon}>🔒</Text>
+            </View>
             <Text style={[styles.menuText, { color: theme.primaryText }]}>Privacy & Security</Text>
             <Text style={[styles.menuArrow, { color: theme.secondaryText }]}>›</Text>
           </View>
         </AnimatedCard>
 
-        <AnimatedCard onPress={() => Alert.alert("Help", "Coming soon!")}>
+        <AnimatedCard onPress={() => router.push('/help')}>
           <View style={styles.menuItem}>
-            <Text style={styles.menuIcon}>❓</Text>
+            <View style={[styles.iconCircle, { backgroundColor: isDark ? 'rgba(184, 164, 248, 0.2)' : 'rgba(212, 165, 165, 0.2)' }]}>
+              <Text style={styles.menuIcon}>💬</Text>
+            </View>
             <Text style={[styles.menuText, { color: theme.primaryText }]}>Help & Support</Text>
             <Text style={[styles.menuArrow, { color: theme.secondaryText }]}>›</Text>
           </View>
@@ -362,7 +367,9 @@ export default function Profile() {
 
         <AnimatedCard onPress={handleLogout}>
           <View style={styles.menuItem}>
-            <Text style={styles.menuIcon}>🚪</Text>
+            <View style={[styles.iconCircle, { backgroundColor: 'rgba(255, 107, 107, 0.2)' }]}>
+              <Text style={styles.menuIcon}>🚪</Text>
+            </View>
             <Text style={[styles.logoutText, { color: '#FF6B6B' }]}>
               {loading ? 'Logging out...' : 'Log Out'}
             </Text>
@@ -421,7 +428,15 @@ const styles = StyleSheet.create({
   userName: { fontSize: 22, fontWeight: '700', marginBottom: 4 },
   userEmail: { fontSize: 14, fontWeight: '400' },
   menuItem: { flexDirection: 'row', alignItems: 'center' },
-  menuIcon: { fontSize: 24, marginRight: 16 },
+  iconCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 16,
+  },
+  menuIcon: { fontSize: 20 },
   menuText: { flex: 1, fontSize: 16, fontWeight: '600' },
   menuArrow: { fontSize: 24, fontWeight: '300' },
   logoutText: { flex: 1, fontSize: 16, fontWeight: '700' },
