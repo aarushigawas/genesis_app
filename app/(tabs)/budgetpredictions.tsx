@@ -2,8 +2,8 @@
 import { LinearGradient } from 'expo-linear-gradient';
 import { collection, doc, getDoc, getDocs } from 'firebase/firestore';
 import React, { useEffect, useRef, useState } from 'react';
-
 import { Platform } from 'react-native';
+import { router } from 'expo-router';
 
 const useNativeDriver = Platform.OS !== 'web';
 
@@ -175,6 +175,82 @@ const AnimatedCard = ({ children, style }: any) => {
   );
 };
 
+// ============== BOTTOM TAB BAR ==============
+const BottomTabBar = ({ activeTab }: { activeTab: string }) => {
+  const { theme } = useTheme();
+  const scaleAnims = {
+    dashboard: useRef(new Animated.Value(1)).current,
+    analytics: useRef(new Animated.Value(1)).current,
+    settings: useRef(new Animated.Value(1)).current,
+    profile: useRef(new Animated.Value(1)).current,
+    transactions: useRef(new Animated.Value(1)).current,
+    budgetpredictions: useRef(new Animated.Value(1)).current,
+  };
+  
+  const tabs = [
+    { id: 'dashboard', label: 'Home', icon: '🏠', route: '/(tabs)/dashboard' },
+    { id: 'transactions', label: 'Transactions', icon: '💳', route: '/(tabs)/transactions' },
+    { id: 'analytics', label: 'Analytics', icon: '📈', route: '/(tabs)/analytics' },
+    { id: 'settings', label: 'Settings', icon: '⚙️', route: '/(tabs)/settings' },
+    { id: 'profile', label: 'Profile', icon: '👤', route: '/(tabs)/profile' },
+    { id: 'budgetpredictions', label: 'Predictions', icon: '🔮', route: '/(tabs)/budgetpredictions' },
+  ];
+  
+  const handlePressIn = (tabId: string) => {
+    Animated.spring(scaleAnims[tabId as keyof typeof scaleAnims], {
+      toValue: 0.85,
+      useNativeDriver: true,
+      friction: 4,
+    }).start();
+  };
+  
+  const handlePressOut = (tabId: string) => {
+    Animated.spring(scaleAnims[tabId as keyof typeof scaleAnims], {
+      toValue: 1,
+      useNativeDriver: true,
+      friction: 4,
+    }).start();
+  };
+  
+  return (
+    <View style={[styles.tabBar, { backgroundColor: theme.cardBackground, borderTopColor: theme.cardBorder }]}>
+      {tabs.map((tab) => {
+        const isActive = activeTab === tab.id;
+        return (
+          <TouchableOpacity
+            key={tab.id}
+            activeOpacity={1}
+            onPressIn={() => handlePressIn(tab.id)}
+            onPressOut={() => handlePressOut(tab.id)}
+            onPress={() => router.push(tab.route as any)}
+            style={styles.tabButton}
+          >
+            <Animated.View
+              style={[
+                styles.tabContent,
+                { transform: [{ scale: scaleAnims[tab.id as keyof typeof scaleAnims] }] },
+              ]}
+            >
+              {isActive && (
+                <View style={[styles.activeIndicator, { backgroundColor: theme.accent[0] }]} />
+              )}
+              <Text style={[styles.tabIcon, { fontSize: 24 }]}>{tab.icon}</Text>
+              <Text
+                style={[
+                  styles.tabLabel,
+                  { color: isActive ? theme.accent[0] : theme.secondaryText },
+                ]}
+              >
+                {tab.label}
+              </Text>
+            </Animated.View>
+          </TouchableOpacity>
+        );
+      })}
+    </View>
+  );
+};
+
 // Main Component
 export default function BudgetPredictions() {
   const { theme, isDark } = useTheme();
@@ -342,6 +418,7 @@ export default function BudgetPredictions() {
           <ActivityIndicator size="large" color={theme.accent[0]} />
           <Text style={[styles.loadingText, { color: theme.primaryText }]}>Analyzing your spending patterns...</Text>
         </View>
+        <BottomTabBar activeTab="budgetpredictions" />
       </View>
     );
   }
@@ -356,6 +433,7 @@ export default function BudgetPredictions() {
           <Text style={[styles.emptyTitle, { color: theme.primaryText }]}>Not Enough Data Yet</Text>
           <Text style={[styles.emptyText, { color: theme.secondaryText }]}>Track your spending for a month to see predictions</Text>
         </View>
+        <BottomTabBar activeTab="budgetpredictions" />
       </View>
     );
   }
@@ -504,13 +582,13 @@ export default function BudgetPredictions() {
           </AnimatedCard>
         )}
 
-        <View style={{ height: 40 }} />
+        <View style={{ height: 100 }} />
       </ScrollView>
       
+      <BottomTabBar activeTab="budgetpredictions" />
     </View>
   );
 }
-
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
@@ -559,4 +637,40 @@ const styles = StyleSheet.create({
   tipEmoji: { fontSize: 24, marginRight: 12 },
   tipTitle: { fontSize: 15, fontWeight: '700', marginBottom: 4 },
   tipReason: { fontSize: 13, lineHeight: 18 },
+  // Bottom Tab Bar styles
+  tabBar: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    borderTopWidth: 1,
+    paddingBottom: 20,
+    paddingTop: 10,
+    paddingHorizontal: 5,
+  },
+  tabButton: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tabContent: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+  },
+  activeIndicator: {
+    position: 'absolute',
+    top: -8,
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+  },
+  tabIcon: {
+    marginBottom: 4,
+  },
+  tabLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
 });
