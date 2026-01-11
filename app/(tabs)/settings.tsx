@@ -168,13 +168,17 @@ const BottomTabBar = ({ activeTab }: { activeTab: string }) => {
     analytics: useRef(new Animated.Value(1)).current,
     settings: useRef(new Animated.Value(1)).current,
     profile: useRef(new Animated.Value(1)).current,
+    transactions: useRef(new Animated.Value(1)).current,
+    budgetpredictions: useRef(new Animated.Value(1)).current,
   };
 
   const tabs = [
     { id: 'dashboard', label: 'Home', icon: '🏠', route: '/(tabs)/dashboard' },
+    { id: 'transactions', label: 'Transactions', icon: '💳', route: '/(tabs)/transactions' },
     { id: 'analytics', label: 'Analytics', icon: '📈', route: '/(tabs)/analytics' },
     { id: 'settings', label: 'Settings', icon: '⚙️', route: '/(tabs)/settings' },
     { id: 'profile', label: 'Profile', icon: '👤', route: '/(tabs)/profile' },
+    { id: 'budgetpredictions', label: 'Predictions', icon: '🔮', route: '/(tabs)/budgetpredictions' },
   ];
 
   const handlePressIn = (tabId: string) => {

@@ -8,15 +8,15 @@ import { Platform } from 'react-native';
 const useNativeDriver = Platform.OS !== 'web';
 
 import {
-    ActivityIndicator,
-    Animated,
-    Dimensions,
-    ScrollView,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Animated,
+  Dimensions,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { Circle, Defs, RadialGradient, Stop, Svg } from 'react-native-svg';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -506,9 +506,11 @@ export default function BudgetPredictions() {
 
         <View style={{ height: 40 }} />
       </ScrollView>
+      
     </View>
   );
 }
+
 
 const styles = StyleSheet.create({
   container: { flex: 1 },

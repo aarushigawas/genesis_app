@@ -3,7 +3,7 @@
 
 import * as DocumentPicker from 'expo-document-picker';
 import { useRouter } from 'expo-router';
-import { collection, doc, getDocs, query, serverTimestamp, setDoc, where } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, query, serverTimestamp, setDoc, where } from 'firebase/firestore';
 import React, { useState } from 'react';
 import {
   ActivityIndicator,
@@ -40,6 +40,71 @@ interface MonthGroup {
 }
 
 // ============================================================================
+// CATEGORY MEMORY FUNCTIONS
+// ============================================================================
+
+function normalizeMerchant(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+async function getRememberedCategory(
+  merchantName: string
+): Promise<{ category: string; confidence: 'high' } | null> {
+  const user = auth.currentUser;
+  if (!user) return null;
+
+  try {
+    const merchantKey = normalizeMerchant(merchantName);
+    const ref = doc(db, 'userCategoryRules', user.uid, 'rules', merchantKey);
+    const snap = await getDoc(ref);
+
+    if (!snap.exists()) return null;
+
+    const data = snap.data();
+    return {
+      category: data.category,
+      confidence: 'high',
+    };
+  } catch (error) {
+    console.error('Error fetching remembered category:', error);
+    return null;
+  }
+}
+
+async function rememberCategory(
+  merchantName: string,
+  category: string,
+  source: 'csv' | 'sms'
+) {
+  const user = auth.currentUser;
+  if (!user) return;
+
+  try {
+    const merchantKey = normalizeMerchant(merchantName);
+    const ref = doc(db, 'userCategoryRules', user.uid, 'rules', merchantKey);
+
+    await setDoc(
+      ref,
+      {
+        merchantKey,
+        originalName: merchantName,
+        category,
+        source,
+        confidence: 'high',
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true }
+    );
+  } catch (error) {
+    console.error('Error saving category memory:', error);
+  }
+}
+
+// ============================================================================
 // AVAILABLE CATEGORIES
 // ============================================================================
 
@@ -69,7 +134,7 @@ const CATEGORY_RULES: Record<string, string[]> = {
   gifts: ['gift', 'present', 'donation', 'charity', 'contribution'],
 };
 
-function detectCategory(merchantName: string): { category: string; confidence: 'high' | 'low' } {
+function detectCategoryFromKeywords(merchantName: string): { category: string; confidence: 'high' | 'low' } {
   const lowerMerchant = merchantName.toLowerCase().trim();
   
   for (const [categoryKey, keywords] of Object.entries(CATEGORY_RULES)) {
@@ -84,6 +149,15 @@ function detectCategory(merchantName: string): { category: string; confidence: '
   return { category: 'Uncategorized', confidence: 'low' };
 }
 
+async function detectCategory(merchantName: string): Promise<{ category: string; confidence: 'high' | 'low' }> {
+  const remembered = await getRememberedCategory(merchantName);
+  if (remembered) {
+    return remembered;
+  }
+  
+  return detectCategoryFromKeywords(merchantName);
+}
+
 function shouldAffectBudget(category: string, type: 'expense' | 'income'): boolean {
   if (type === 'income') return false;
   if (category === 'Transfers' || category === 'Income') return false;
@@ -94,7 +168,7 @@ function shouldAffectBudget(category: string, type: 'expense' | 'income'): boole
 // CSV PARSING
 // ============================================================================
 
-function parseCSV(content: string): ParsedTransaction[] {
+async function parseCSV(content: string): Promise<ParsedTransaction[]> {
   const lines = content.split('\n').filter(line => line.trim());
   if (lines.length === 0) return [];
   
@@ -106,7 +180,7 @@ function parseCSV(content: string): ParsedTransaction[] {
     
     if (columns.length < 3) continue;
     
-    const transaction = extractTransactionFromColumns(columns);
+    const transaction = await extractTransactionFromColumns(columns);
     if (transaction) {
       transactions.push(transaction);
     }
@@ -137,7 +211,7 @@ function parseCSVLine(line: string): string[] {
   return result;
 }
 
-function extractTransactionFromColumns(columns: string[]): ParsedTransaction | null {
+async function extractTransactionFromColumns(columns: string[]): Promise<ParsedTransaction | null> {
   try {
     let dateStr = '';
     let merchantName = '';
@@ -181,7 +255,7 @@ function extractTransactionFromColumns(columns: string[]): ParsedTransaction | n
     const isIncome = credit > 0;
     const amount = isIncome ? credit : debit;
     
-    const { category, confidence } = detectCategory(merchantName);
+    const { category, confidence } = await detectCategory(merchantName);
     
     let type: 'expense' | 'income' = isIncome ? 'income' : 'expense';
     if (category === 'Income') {
@@ -440,7 +514,7 @@ export default function CSVImportScreen() {
       const response = await fetch(fileUri);
       const content = await response.text();
       
-      const parsedTransactions = parseCSV(content);
+      const parsedTransactions = await parseCSV(content);
       
       if (parsedTransactions.length === 0) {
         Alert.alert('No Transactions', 'Could not find any valid transactions in the file.');
@@ -471,11 +545,15 @@ export default function CSVImportScreen() {
   // CATEGORY SELECTION
   // ============================================================================
   
-  const handleCategorySelect = (index: number, newCategory: string) => {
+  const handleCategorySelect = async (index: number, newCategory: string) => {
     const updated = [...transactions];
-    updated[index].category = newCategory;
-    updated[index].confidence = 'high';
-    updated[index].affectsBudget = shouldAffectBudget(newCategory, updated[index].type);
+    const transaction = updated[index];
+    
+    transaction.category = newCategory;
+    transaction.confidence = 'high';
+    transaction.affectsBudget = shouldAffectBudget(newCategory, transaction.type);
+    
+    await rememberCategory(transaction.merchantName, newCategory, 'csv');
     
     setTransactions(updated);
     
@@ -514,7 +592,6 @@ export default function CSVImportScreen() {
       return;
     }
     
-    // Check if user is authenticated
     const user = auth.currentUser;
     if (!user) {
       Alert.alert('Error', 'You must be logged in to import transactions.');
@@ -524,7 +601,6 @@ export default function CSVImportScreen() {
     try {
       setLoading(true);
       
-      // Check for duplicates
       const hasDuplicates = await checkDuplicates(transactions);
       
       if (hasDuplicates) {
@@ -578,7 +654,6 @@ export default function CSVImportScreen() {
       
       console.log(`✅ Successfully saved ${result.success} transactions to Firestore`);
       
-      // Navigate to csv-imports screen (NO PARAMS - will read from Firestore)
       router.push('/parsing/csv-imports');
       
     } catch (error) {

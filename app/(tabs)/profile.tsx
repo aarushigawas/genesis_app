@@ -4,15 +4,15 @@ import { router } from 'expo-router';
 import { signOut } from "firebase/auth";
 import React, { useEffect, useRef, useState } from 'react';
 import {
-    Alert,
-    Animated,
-    Dimensions,
-    ScrollView,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  Alert,
+  Animated,
+  Dimensions,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { Circle, Defs, RadialGradient, Stop, Svg } from 'react-native-svg';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -146,17 +146,21 @@ const FloatingFlowers = () => {
 const BottomTabBar = ({ activeTab }: { activeTab: string }) => {
   const { theme } = useTheme();
   const scaleAnims = {
-    dashboard: useRef(new Animated.Value(1)).current,
-    analytics: useRef(new Animated.Value(1)).current,
-    settings: useRef(new Animated.Value(1)).current,
-    profile: useRef(new Animated.Value(1)).current,
-  };
+      dashboard: useRef(new Animated.Value(1)).current,
+      analytics: useRef(new Animated.Value(1)).current,
+      settings: useRef(new Animated.Value(1)).current,
+      profile: useRef(new Animated.Value(1)).current,
+      transactions: useRef(new Animated.Value(1)).current,
+      budgetpredictions: useRef(new Animated.Value(1)).current,
+    };
 
   const tabs = [
     { id: 'dashboard', label: 'Home', icon: '🏠', route: '/(tabs)/dashboard' },
+    { id: 'transactions', label: 'Transactions', icon: '💳', route: '/(tabs)/transactions' },
     { id: 'analytics', label: 'Analytics', icon: '📈', route: '/(tabs)/analytics' },
     { id: 'settings', label: 'Settings', icon: '⚙️', route: '/(tabs)/settings' },
     { id: 'profile', label: 'Profile', icon: '👤', route: '/(tabs)/profile' },
+    { id: 'budgetpredictions', label: 'Predictions', icon: '🔮', route: '/(tabs)/budgetpredictions' },
   ];
 
   const handlePressIn = (tabId: string) => {

@@ -167,9 +167,11 @@ const BottomTabBar = ({ activeTab }: { activeTab: string }) => {
 
   const tabs = [
     { id: 'dashboard', label: 'Home', icon: '🏠', route: '/(tabs)/dashboard' },
-    { id: 'transactions', label: 'Add', icon: '➕', route: '/(tabs)/transactions' },
+    { id: 'transactions', label: 'Transactions', icon: '💳', route: '/(tabs)/transactions' },
     { id: 'analytics', label: 'Analytics', icon: '📈', route: '/(tabs)/analytics' },
+    { id: 'settings', label: 'Settings', icon: '⚙️', route: '/(tabs)/settings' },
     { id: 'profile', label: 'Profile', icon: '👤', route: '/(tabs)/profile' },
+    { id: 'budgetpredictions', label: 'Predictions', icon: '🔮', route: '/(tabs)/budgetpredictions' },
   ];
 
   return (
